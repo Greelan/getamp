@@ -7,9 +7,72 @@ function fetchString { result=$( [ -n "$CURL_IS_PRESENT" ] && curl --ipv4 -s -L 
 function urlLink { echo -e "\e]8;;${1}\a${2:-${1}}\e]8;;\a"; }
 function prnt { echo -e "$1" | fold -s -w "$cols"; }
 function check_version { local distro; distro=$(echo "$1" | tr '[:upper:]' '[:lower:]'); [[ "$distro" == "$(echo "$ID" | tr '[:upper:]' '[:lower:]')" && "$(printf '%s\n' "$3" "$2" | sort -V | head -n1)" != "$3" ]] && echo "AMP reqiures $1 $3 or newer. You are currently running $VERSION_ID. Please upgrade to $1 $3 and try again." && exit 1; }
-version_ge() {
+function version_ge {
 	# Returns 0 (true) if $1 >= $2
 	[ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
+}
+
+function mapUpstream {
+	case "${ID:-}" in
+		ubuntu)
+			echo "ubuntu|"${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"|${VERSION_ID:-}"; return 0 ;;
+		debian)
+			echo "debian|"${VERSION_CODENAME:-}"|${VERSION_ID:-}"; return 0 ;;
+		raspbian)
+			case "${VERSION_CODENAME:-}" in
+				bullseye) echo "debian|bullseye|11"; return 0 ;;
+				bookworm) echo "debian|bookworm|12"; return 0 ;;
+				trixie) echo "debian|trixie|13"; return 0 ;;
+			esac
+			return 1 ;;
+		kali)
+			case "${VERSION_ID%%.*}" in
+				2021|2022) echo "debian|bullseye|11"; return 0 ;;
+				2023|2024) echo "debian|bookworm|12"; return 0 ;;
+				2025|2026) echo "debian|trixie|13"; return 0 ;;
+			esac
+			return 1 ;;
+		linuxmint)
+			case "${VERSION_ID%%.*}" in
+			    6) echo "debian|bookworm|12"; return 0 ;;
+				7) echo "debian|trixie|13"; return 0 ;;
+				20) echo "ubuntu|focal|20.04"; return 0 ;;
+				21) echo "ubuntu|jammy|22.04"; return 0 ;;
+				22) echo "ubuntu|noble|24.04"; return 0 ;;
+			esac
+			return 1 ;;
+		pop)
+			case "${VERSION_ID:-}" in
+				20.04*) echo "ubuntu|focal|20.04"; return 0 ;;
+				22.04*) echo "ubuntu|jammy|22.04"; return 0 ;;
+				24.04*) echo "ubuntu|noble|24.04"; return 0 ;;
+			esac
+			return 1 ;;
+		zorin)
+			case "${VERSION_ID%%.*}" in
+				16) echo "ubuntu|focal|20.04"; return 0 ;;
+				17) echo "ubuntu|jammy|22.04"; return 0 ;;
+				18) echo "ubuntu|noble|24.04"; return 0 ;;
+			esac
+			return 1 ;;
+		elementary)
+			case "${VERSION_ID%%.*}" in
+				6) echo "ubuntu|focal|20.04"; return 0 ;;
+				7) echo "ubuntu|jammy|22.04"; return 0 ;;
+				8) echo "ubuntu|noble|24.04"; return 0 ;;
+			esac
+			return 1 ;;
+		rhel|rocky|almalinux)
+			echo "rhel||${VERSION_ID:-}"; return 0 ;;
+		fedora)
+			echo "fedora||${VERSION_ID:-}"; return 0 ;;
+		centos|ol|oraclelinux)
+			echo "centos||${VERSION_ID:-}"; return 0 ;;
+		arch|manjaro|endeavouros|garuda)
+			echo "arch||${VERSION_ID:-rolling}"; return 0 ;;
+		*)
+			return 1 ;;
+	esac
 }
 
 echo "Please wait while GetAMP examines your system and network configuration..."
@@ -455,16 +518,18 @@ function promptForDeps {
 		return
 	fi
 
-	if [ "$ARCH" == "x86_64" ]; then
-		echo "Would you like to isolate your AMP instances by running them inside Docker containers?"
-		prnt "This provides an additional layer of protection at the expense of a minor performance impact. It is strongly recommended if you are going to allow untrusted users access to AMP."
-		echo
-		prnt "Using Docker is strongly recommended if you want to run Windows-based applications on this system, as it removes the requirement to install additional dependencies on the host."
-		read -n1 -rp "[y/N] " installDocker
-		installDocker=${installDocker:-n}
-		echo
-		echo
-	fi
+	echo "Would you like to isolate your AMP instances by running them inside Docker containers?"
+	prnt "This provides an additional layer of protection at the expense of a minor performance impact. It is strongly recommended if you are going to allow untrusted users access to AMP."
+	echo
+	prnt "Using Docker is also strongly recommended if you want to run Windows-based applications on this system, as it removes the requirement to install additional dependencies on the host."
+	case "$ID" in
+		ubuntu|debian|rhel|centos|fedora) ;;
+		*) prnt "Note that, given that your distribution does not have a specific Docker repository, if this option is selected an attempt will be made to install Docker from the appropriate upstream repository." ;;
+	esac
+	read -n1 -rp "[y/N] " installDocker
+	installDocker=${installDocker:-n}
+	echo
+	echo
 
 	if [[ ! "$installDocker" =~ ^[Yy]$ ]]; then
 		echo "Will you be running Minecraft servers on this installation?"
@@ -699,38 +764,92 @@ EOF
 }
 
 function installDocker {
+	echo ""
+	
 	if [ "$DOCKER_IS_INSTALLED" ]; then
-		echo "Docker already installed. Skipping..."
-		{
-			usermod -a -G docker $AMP_SYS_USER
-			systemctl enable docker
-			systemctl start docker
-		} &>> "$LOG_FILE"
-		return
-	fi
-
-	if [ "$ARCH" != "x86_64" ]; then
-		echo "AMP's docker mode is only supported on x86_64 systems. You are running $ARCH"
-		exit 64
+		echo "Docker is already installed."
+		echo "If you didn't install Docker from the official Docker repositories, then it may not operate correctly with AMP."
+		echo "Do you want to remove the existing Docker installation and install Docker from the official Docker repositories, if available for your system?"
+		echo "This will also stop any existing running Docker containers."
+		read -rp "[y/N] " reInstallDocker
+		reInstallDocker=${reInstallDocker:-n}
+		if [[ ! "$reInstallDocker" =~ ^[Yy]$ ]]; then
+			echo "Skipping Docker re-installation..."
+			{
+				usermod -a -G docker $AMP_SYS_USER
+				systemctl enable docker
+				systemctl start docker
+			} &>> "$LOG_FILE"
+			return
+		fi
 	fi
 
 	echo "Installing Docker..."
 
-	if [ "$APT_IS_PRESENT" ]; then
-		wget -qO- "https://download.docker.com/linux/$ID/gpg" | gpg --dearmor > /usr/share/keyrings/download.docker.com.gpg
-		echo "deb [signed-by=/usr/share/keyrings/download.docker.com.gpg arch=$(dpkg --print-architecture)] https://download.docker.com/linux/$ID $VERSION_CODENAME stable" > /etc/apt/sources.list.d/download.docker.com.list
-		apt-get update &>> "$LOG_FILE"
-	elif [ "$YUM_IS_PRESENT" ]; then
-		wget -P /etc/yum.repos.d https://download.docker.com/linux/centos/docker-ce.repo &>> "$LOG_FILE"
-		yum check-update &>> "$LOG_FILE"
-	fi
+	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
+	DOCKER_REPO_AVAILABLE=false
 
-	{
-		$PM_COMMAND "${PM_INSTALL[@]}" docker-ce docker-ce-cli containerd.io
-		systemctl enable docker
-		systemctl start docker
-		usermod -a -G docker $AMP_SYS_USER
-	} &>> "$LOG_FILE"
+    case "$BASE_ID" in
+        ubuntu|debian)
+			if wget -q --spider https://download.docker.com/linux/$BASE_ID/dists/$BASE_SUITE/ >/dev/null 2>&1; then
+				DOCKER_REPO_AVAILABLE=true
+				if [[ "$reInstallDocker" =~ ^[Yy]$ ]]; then
+					REMOVE_DOCKER_PACKAGES="docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc"
+				fi
+				[[ -f /usr/share/keyrings/download.docker.com.gpg ]] && rm -f /usr/share/keyrings/download.docker.com.gpg >/dev/null 2>&1
+				[[ -f /etc/apt/sources.list.d/download.docker.com.list ]] && rm -f /etc/apt/sources.list.d/download.docker.com.list >/dev/null 2>&1
+				[[ -f /etc/apt/sources.list.d/docker.list ]] && rm -f /etc/apt/sources.list.d/docker.list >/dev/null 2>&1
+				wget -qO /usr/share/keyrings/docker.asc https://download.docker.com/linux/$BASE_ID/gpg
+				chmod a+r /usr/share/keyrings/docker.asc
+				if { [[ "$BASE_ID" == "ubuntu" ]] && version_ge "$BASE_VERSION_ID" "22.04"; } || { [[ "$BASE_ID" == "debian" ]] && version_ge "$BASE_VERSION_ID" "12"; }; then
+					printf "Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /usr/share/keyrings/docker.asc\n" "$BASE_ID" "$BASE_SUITE" "$(dpkg --print-architecture)" \
+					| tee /etc/apt/sources.list.d/docker.sources > /dev/null
+				else
+					echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/$BASE_ID $BASE_SUITE stable" \
+					| tee /etc/apt/sources.list.d/docker.list > /dev/null
+				fi
+				$PM_COMMAND update &>> "$LOG_FILE"
+				DOCKER_PACKAGES="docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+			fi
+            ;;
+        rhel|fedora|centos)
+			if wget -q --spider https://download.docker.com/linux/$BASE_ID/ >/dev/null 2>&1; then
+				DOCKER_REPO_AVAILABLE=true
+				[[ -f /etc/yum.repos.d/docker-ce.repo ]] && rm -f /etc/yum.repos.d/docker-ce.repo >/dev/null 2>&1
+				if [[ "$reInstallDocker" =~ ^[Yy]$ ]]; then
+					REMOVE_DOCKER_PACKAGES="docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-selinux docker-engine-selinux docker-engine podman runc"
+				fi
+				if [ "$PM_COMMAND" == "yum" ]; then
+					$PM_COMMAND "${PM_INSTALL[@]}" yum-utils
+					yum-config-manager --add-repo https://download.docker.com/linux/$BASE_ID/docker-ce.repo
+				elif [ "$PM_COMMAND" == "dnf" ]; then
+					$PM_COMMAND "${PM_INSTALL[@]}" dnf-plugins-core
+					$PM_COMMAND config-manager --add-repo https://download.docker.com/linux/$BASE_ID/docker-ce.repo
+				fi
+				DOCKER_PACKAGES="docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+			fi
+            ;;
+        *) ;;
+    esac
+
+	if ! $DOCKER_REPO_AVAILABLE; then
+		echo "Automatic Docker installation is not supported on your system at this time. Please investigate installing it manually after setup completes. See https://docs.docker.com/engine/install/ for more information. If you install Docker manually, also ensure that the '$AMP_SYS_USER' user is added to the 'docker' group."
+		echo "Continuing without installing Docker..."
+		PROVISIONFLAGS="${PROVISIONFLAGS/ +ADSModule.Defaults.UseDocker True/}"
+		return
+	else
+		{
+			if [[ "$reInstallDocker" =~ ^[Yy]$ ]]l then
+				docker ps -q | xargs -r docker stop
+				systemctl stop docker
+				for pkg in $REMOVE_DOCKER_PACKAGES; do $PM_COMMAND "${PM_UNINSTALL[@]}" $pkg; done
+			fi
+			$PM_COMMAND "${PM_INSTALL[@]}" $DOCKER_PACKAGES
+			systemctl enable docker
+			systemctl start docker
+			usermod -a -G docker $AMP_SYS_USER
+		} &>> "$LOG_FILE"
+	fi
 }
 
 function installSrcdsDeps {
@@ -1178,9 +1297,9 @@ if [ "$AMPINSTMGR_IS_INSTALLED" ]; then echo "Already installed"; else echo "To 
 echo -en "HTTPS setup:\t\t\t"| tee -a $INSTALL_SUMMARY
 if [[ "$setupnginx" =~ ^[Yy]$ ]]; then echo "Yes, via nginx with domain $nginxdomain"; else echo "No"; fi| tee -a $INSTALL_SUMMARY
 noReason=$( [[ "$installDocker" =~ ^[Yy]$ ]] && echo "Not Required (Using Docker)" || echo "No" )
+echo -en "Install Docker:\t\t\t" | tee -a $INSTALL_SUMMARY
+if [[ "$installDocker" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "No"; fi | tee -a $INSTALL_SUMMARY
 if [ "$ARCH" == "x86_64" ]; then
-	echo -en "Install Docker:\t\t\t" | tee -a $INSTALL_SUMMARY
-	if [[ "$installDocker" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "No"; fi | tee -a $INSTALL_SUMMARY
 	echo -en "Install 32-bit libraries:\t" | tee -a $INSTALL_SUMMARY
 	if [[ "$installsrcdsLibs" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "$noReason"; fi | tee -a $INSTALL_SUMMARY
 fi
