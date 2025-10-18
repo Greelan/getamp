@@ -124,18 +124,18 @@ if [ "$APT_IS_PRESENT" ]; then
 	PM_INSTALL=(install -y)
 	PM_UNINSTALL=(remove -y)
 	CERTBOT_PACKAGE=python3-certbot-nginx
-	LIB32_PACKAGES="lib32stdc++6 lib32z1 libncurses5:i386 libbz2-1.0:i386 libtinfo5:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
+	LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses5:i386 libbz2-1.0:i386 libtinfo5:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
 	PREREQ_PACKAGES="dirmngr software-properties-common apt-transport-https gpg-agent dnsutils jq git unzip wget gpg qrencode ca-certificates"
-	#If we're on Ubuntu 24.04 or newer: 
+	# If we're on Ubuntu 24.04 or newer: 
 	if [ "$ID" = "ubuntu" ] && version_ge "$VERSION_ID" "24.04"; then
 		echo " - Updating packages list for Ubuntu >= 24.04..."
-		LIB32_PACKAGES="lib32stdc++6 lib32z1 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
+		LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3t64-gnutls:i386 libsdl2-2.0-0:i386"
 	fi
-	#Debian 13 or newer
+	# Debian 13 or newer
 	if [ "$ID" = "debian" ] && version_ge "$VERSION_ID" "13"; then
 		echo " - Updating packages list for Debian >= 13..."
 		PREREQ_PACKAGES="dirmngr apt-transport-https gpg-agent dnsutils jq git unzip wget gpg qrencode libicu76 ca-certificates"
-		LIB32_PACKAGES="lib32stdc++6 lib32z1 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
+		LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3t64-gnutls:i386 libsdl2-2.0-0:i386"
 	fi
 	
 	PM_LOCK_FILE="/var/lib/dpkg/lock"
@@ -237,7 +237,7 @@ if [ "$ARCH" == "aarch64" ]; then
 	echo
 	echo "You are installing AMP on an aarch64 system."
 	echo
-	prnt "This means that many game servers will not run on this system, or may only run via CPx2 emulation which may significantly reduce performance."
+	prnt "This means that many game servers will not run on this system, or may only run via CPx2 emulation which may reduce performance."
 	echo 
 	echo "For more information on aarch64 compatible titles, please see:"
 	urlLink "https://discourse.cubecoders.com/docs?topic=1870&utm_term=aarch64"
@@ -328,49 +328,42 @@ function configureDarkMagicNew {
 		echo "CPx2 is only supported on Ubuntu and Debian at this time."
 		exit
 	fi
-
-	oldpwd=$(pwd)
 	
 	echo "Installing CPx2..."
-	echo " - Configuring package manager and installing dependencies..."
 	{
-	dpkg --add-architecture armhf
-	$PM_COMMAND update
-	if [ "$ID" = "ubuntu" ] && version_ge "$VERSION_ID" "24.04"; then
-		ARM_PACAKGES="git build-essential cmake libsdl2-dev libsdl2-2.0-0 gcc-arm-linux-gnueabihf libc6:armhf libncurses6:armhf libstdc++6:armhf libtinfo6:armhf"
-	else
-		ARM_PACAKGES="git build-essential cmake libsdl2-dev libsdl2-2.0-0 gcc-arm-linux-gnueabihf libc6:armhf libncurses5:armhf libstdc++6:armhf libtinfo5:armhf"
-	fi
+		dpkg --add-architecture armhf
+		$PM_COMMAND update
+		if { [[ "$ID" == "ubuntu" ]] && version_ge "$VERSION_ID" "24.04"; } || { [[ "$ID" == "debian" ]] && version_ge "$VERSION_ID" "13"; }; then
+			ARM_PACKAGES="libgcc-s1:armhf libstdc++6:armhf zlib1g:armhf libbz2-1.0:armhf libcurl4t64:armhf libcurl3t64-gnutls:armhf libncurses6:armhf libtinfo6:armhf libsdl2-2.0-0:armhf libssl3t64:armhf"
+		else
+			ARM_PACKAGES="libgcc-s1:armhf libstdc++6:armhf zlib1g:armhf libbz2-1.0:armhf libcurl4:armhf libcurl3-gnutls:armhf libncurses5:armhf libtinfo5:armhf libsdl2-2.0-0:armhf libssl3:armhf"
+		fi
+		$PM_COMMAND "${PM_INSTALL[@]}" $ARM_PACKAGES
+		
+		wget -qO- "https://pi-apps-coders.github.io/box86-debs/KEY.gpg" | gpg --dearmor --yes -o /usr/share/keyrings/box86-archive-keyring.gpg
+		wget -qO- "https://pi-apps-coders.github.io/box64-debs/KEY.gpg" | gpg --dearmor --yes -o /usr/share/keyrings/box64-archive-keyring.gpg
+		if { [[ "$ID" == "ubuntu" ]] && version_ge "$VERSION_ID" "22.04"; } || { [[ "$ID" == "debian" ]] && version_ge "$VERSION_ID" "12"; }; then
+			[[ -f /etc/apt/sources.list.d/box86.list ]] && rm /etc/apt/sources.list.d/box86.list
+			[[ -f /etc/apt/sources.list.d/box64.list ]] && rm /etc/apt/sources.list.d/box64.list
+			printf "Types: deb\nURIs: https://Pi-Apps-Coders.github.io/box86-debs/debian\nSuites: ./\nSigned-By: /usr/share/keyrings/box86-archive-keyring.gpg" | tee /etc/apt/sources.list.d/box86.sources >/dev/null
+			printf "Types: deb\nURIs: https://Pi-Apps-Coders.github.io/box64-debs/debian\nSuites: ./\nSigned-By: /usr/share/keyrings/box64-archive-keyring.gpg" | tee /etc/apt/sources.list.d/box64.sources >/dev/null
+		else
+			echo "deb [signed-by=/usr/share/keyrings/box86-archive-keyring.gpg] https://Pi-Apps-Coders.github.io/box86-debs/debian ./" | tee /etc/apt/sources.list.d/box86.list > /dev/null
+			echo "deb [signed-by=/usr/share/keyrings/box64-archive-keyring.gpg] https://Pi-Apps-Coders.github.io/box64-debs/debian ./" | tee /etc/apt/sources.list.d/box64.list > /dev/null
+		fi
+		$PM_COMMAND update &>> "$LOG_FILE"
 
-	$PM_COMMAND "${PM_INSTALL[@]}" $ARM_PACAKGES
+		MODEL=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || grep -m1 'Model' /proc/cpuinfo || true)
+		case "$MODEL" in
+			*"Raspberry Pi 4"*) BOX_PACKAGES="box86-rpi4arm64:armhf box64-rpi4arm64" ;;
+			*"Raspberry Pi 3"*) BOX_PACKAGES="box86-rpi3arm64:armhf box64-rpi3arm64" ;;
+			*) BOX_PACKAGES="box86-generic-arm:armhf box64-generic-arm" ;;
+		esac
+
+    	$PM_COMMAND "${PM_INSTALL[@]}" $BOX_PACKAGES
+
+		systemctl restart systemd-binfmt
 	} &>> "$LOG_FILE"
-	cd ~ || return
-	echo " - Fetching sources..."
-	{
-	git clone --depth=1 https://github.com/ptitSeb/box86
-	git clone --depth=1 https://github.com/ptitSeb/box64
-	} &>> "$LOG_FILE"
-	echo " - Compiling 32-bit x86 support... (This may take a while)"
-	{
-		mkdir ~/box86/build;
-		cd ~/box86/build || return;
-		cmake .. -DRPI4ARM64=1 -DCMAKE_BUILD_TYPE=RelWithDebInfo;
-		make "-j$(nproc)";
-		make install;
-	} &>> "$LOG_FILE"
-	echo " - Compiling x86_64 support... (This may take a while)"
-	{
-		mkdir ~/box64/build;
-		cd ~/box64/build || return;
-		cmake .. -DRPI4ARM64=1 -DCMAKE_BUILD_TYPE=RelWithDebInfo;
-		make "-j$(nproc)";
-		make install;
-	} &>> "$LOG_FILE"
-	echo " - Restarting system services..."
-	systemctl restart systemd-binfmt &>> "$LOG_FILE"
-	rm -r ~/box86 ~/box64
-	cd "$oldpwd" || return
-	echo " - Done!"
 }
 
 function showWelcome {
@@ -486,7 +479,8 @@ function promptForDeps {
 
 	if [ "$ARCH" == "aarch64" ] && { [ "$ID" == "ubuntu" ] || [ "$ID" == "debian" ]; }; then
 		echo "Would you like to configure this system for cross-platform execution (CPx2)?"
-		prnt "This allows AMP to run a limited number of x86_64 applications on aarch64 systems via emulation. But this comes at a significant performance impact."
+		echo "CPx2 involves installing Box86 and Box64 on this system from the Pi-Apps-Coders repositories (https://github.com/Pi-Apps-Coders)."
+		prnt "This allows AMP to run a limited number of x86_64 applications on aarch64 systems via emulation - see https://discourse.cubecoders.com/t/aarch64-arm64-compatibility/1870. But this comes at a performance impact."
 		echo
 		read -n1 -rp "[y/N] " installDarkMagic
 		installDarkMagic=${installDarkMagic:-n}
