@@ -578,6 +578,7 @@ function createUser {
 		exit 11
 	fi
 	echo "$AMP_SYS_USER:$syspass" | chpasswd
+    install -d -m 0700 -o $AMP_SYS_USER -g $AMP_SYS_USER "/run/user/$(id -u $AMP_SYS_USER)"
 	{
 		echo "export TERM=xterm"
 		# shellcheck disable=2028
@@ -585,6 +586,7 @@ function createUser {
 		# shellcheck disable=2028
 		echo "alias sudo=\"echo \\\"You cannot use sudo while logged in as the 'amp' user, you need to be logged in as an administrator/root user do to that.\\\" && false\""
 		echo "alias htop=\"htop -u $AMP_SYS_USER\""
+        echo "export XDG_RUNTIME_DIR=\"/run/user/$(id -u $AMP_SYS_USER)\""
 	} >> /home/$AMP_SYS_USER/.profile
 	mkdir -p "/home/$AMP_SYS_USER/.config/htop/"
 	cat <<EOF > /home/$AMP_SYS_USER/.config/htop/htoprc
@@ -993,6 +995,11 @@ function update {
 	elif [ "$PACMAN_IS_PRESENT" ]; then
 		installAMP
 	fi
+
+    install -d -m 0700 -o $AMP_SYS_USER -g $AMP_SYS_USER "/run/user/$(id -u $AMP_SYS_USER)"
+    if ! grep -q "export XDG_RUNTIME_DIR=\"/run/user/$(id -u $AMP_SYS_USER)\"" "/home/$AMP_SYS_USER/.profile"; then
+        echo "export XDG_RUNTIME_DIR=\"/run/user/$(id -u $AMP_SYS_USER)\"" >> "/home/$AMP_SYS_USER/.profile"
+    fi
 
 	echo "Updating AMP instances..."
 	su -l $AMP_SYS_USER -c "ampinstmgr upgradeall"
