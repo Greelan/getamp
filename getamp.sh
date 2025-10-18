@@ -1,12 +1,12 @@
 #!/bin/bash
-#CubeCoders AMP Installer (C)2019-2025 CubeCoders Limited
+#CubeCoders AMP Installer (C) 2019-2025 CubeCoders Limited
 
 function isPresent { command -v "$1" &> /dev/null && echo 1; }
 function isFileOpen { lsof "$1" &> /dev/null && echo 1; }
 function fetchString { result=$( [ -n "$CURL_IS_PRESENT" ] && curl --ipv4 -s -L "$1" 2>/dev/null || wget --inet4-only -qO- "$1" 2>/dev/null ); echo "${result:-${2:-}}"; }
 function urlLink { echo -e "\e]8;;${1}\a${2:-${1}}\e]8;;\a"; }
 function prnt { echo -e "$1" | fold -s -w "$cols"; }
-function check_version { local distro; distro=$(echo "$1" | tr '[:upper:]' '[:lower:]'); [[ "$distro" == "$(echo "$ID" | tr '[:upper:]' '[:lower:]')" && "$(printf '%s\n' "$3" "$2" | sort -V | head -n1)" != "$3" ]] && echo "AMP reqiures $1 $3 or newer. You are currently running $VERSION_ID. Please upgrade to $1 $3 and try again." && exit 1; }
+function check_version { local distro; distro=$(echo "$1" | tr '[:upper:]' '[:lower:]'); [[ "$distro" == "$(echo "$ID" | tr '[:upper:]' '[:lower:]')" && "$(printf '%s\n' "$3" "$2" | sort -V | head -n1)" != "$3" ]] && echo "AMP requires $1 $3 or newer. You are currently running $VERSION_ID. Please upgrade to $1 $3 and try again." && exit 1; }
 version_ge() {
 	# Returns 0 (true) if $1 >= $2
 	[ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
@@ -162,12 +162,12 @@ elif [ "$PACMAN_IS_PRESENT" ]; then
 	JAVA_PACKAGE="jre8-openjdk-headless jre-openjdk-headless"
 
 	if [ "$ARCH" != "x86_64" ]; then
-		echo "AMP only supports aarch64 on Debian and Red Hat/CentOS based distros at this time."
+		echo "AMP only supports aarch64 on Debian and RHEL/CentOS based distros at this time."
 		exit
 	fi
 else
 	echo "This system doesn't appear to be supported. No supported package manager (apt/yum/pacman) was found."
-	echo "Automated installation is only availble for Debian, Red-Hat and Arch based distrubitions, including Ubuntu and CentOS."
+	echo "Automated installation is only available for Debian, RHEL and Arch based distributions, including Ubuntu and CentOS."
 	echo "$NAME is not a supported distribution at this time."
 	exit
 fi
@@ -226,7 +226,7 @@ check_version "Debian" "10"
 check_version "CentOS" "8"
 
 if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
-	echo "AMP is only supported on x86_64 and aarch64 systems. You are running $ARCH"
+	echo "AMP is only supported on x86_64 and aarch64 systems. You are running $ARCH."
 	exit 64
 fi
 
@@ -378,7 +378,7 @@ function showWelcome {
 		clear
 		echo
 		echo "GetAMP v$GETAMP_VERSION, ©2019-$(date +%Y) CubeCoders Limited"
-		prnt "AMP QuickStart installation script for Debian, Red-Hat and Arch based GNU/Linux distributions"
+		prnt "AMP QuickStart installation script for Debian, RHEL and Arch based GNU/Linux distributions"
 		prnt "This installer will perform the following:"
 		echo 
 		echo " * Install any pending system updates"
@@ -450,7 +450,7 @@ function promptForDeps {
 
 	if [ -n "$USE_ANSWERS" ]; then
 		installJava=$ANSWER_INSTALLJAVA
-		installsrcdsLibs=$ANSWER_INSTALLSRCDSLIBS
+		install32BitLibs=${ANSWER_INSTALL32BITLIBS:-${ANSWER_INSTALLSRCDSLIBS:-}}
 		installDocker=$ANSWER_INSTALLDOCKER
 		return
 	fi
@@ -460,35 +460,35 @@ function promptForDeps {
 		prnt "This provides an additional layer of protection at the expense of a minor performance impact. It is strongly recommended if you are going to allow untrusted users access to AMP."
 		echo
 		prnt "Using Docker is strongly recommended if you want to run Windows-based applications on this system, as it removes the requirement to install additional dependencies on the host."
-		read -n1 -rp "[y/N] " installDocker
+		read -rp "[y/N] " installDocker
 		installDocker=${installDocker:-n}
 		echo
 		echo
 	fi
 
-	if [[ ! "$installDocker" =~ ^[Yy]$ ]]; then
-		echo "Will you be running Minecraft servers on this installation?"
-		echo "If selected, this installs the required versions of Java."
-		read -n1 -rp "[Y/n] " installJava
-		installJava=${installJava:-y}
-		echo
-		echo
+	echo "Will you be running Minecraft servers on this installation?"
+	echo "If selected, this installs the required versions of Java."
+    echo "If you selected to install Docker, and intend to run Minecraft servers only inside Docker containers, you do not need to select this option. It is however useful for flexibility."
+	read -rp "[Y/n] " installJava
+	installJava=${installJava:-y}
+	echo
+	echo
 
-		if [ "$ARCH" == "x86_64" ]; then
-			echo "Will you be running applications that rely on SteamCMD? (Rust, Ark, CSGO, TF2, etc) on this installation?"
-			echo "If selected, this will install the required additional 32-bit libraries."
-			read -n1 -rp "[Y/n] " installsrcdsLibs
-			installsrcdsLibs=${installsrcdsLibs:-y}
-			echo
-			echo
-		fi
+	if [ "$ARCH" == "x86_64" ]; then
+		echo "Will you be running applications that rely on SteamCMD (Rust, ARK, CS2, Palworld, etc) on this installation?"
+		echo "If selected, this will install the required additional 32-bit libraries."
+        echo "If you selected to install Docker, and intend to run such applications only inside Docker containers, you do not need to select this option. It is however useful for flexibility."
+		read -rp "[Y/n] " install32BitLibs
+		install32BitLibs=${install32BitLibs:-y}
+		echo
+		echo
 	fi
 
 	if [ "$ARCH" == "aarch64" ] && { [ "$ID" == "ubuntu" ] || [ "$ID" == "debian" ]; }; then
 		echo "Would you like to configure this system for cross-platform execution (CPx2)?"
-		prnt "This allows AMP to run a limited number of x86_64 applications on aarch64 systems via emulation. But this comes at a significant performance impact."
+		prnt "This allows AMP to run a limited number of x86_64 applications on aarch64 systems via emulation - see https://discourse.cubecoders.com/t/aarch64-arm64-compatibility/1870. But this comes at a performance impact."
 		echo
-		read -n1 -rp "[y/N] " installDarkMagic
+		read -rp "[y/N] " installDarkMagic
 		installDarkMagic=${installDarkMagic:-n}
 		echo
 		echo
@@ -526,10 +526,10 @@ function promptForHTTPS {
 	echo
 	echo "${BoldText}Do not choose this option if you do not already own a domain.${NormalText}"
 	echo 
-	prnt "Using this facility requires that you read and accept the LetsEncrypt terms at ${UnderlineText}$(urlLink "https://letsencrypt.org/documents/LE-SA-v1.2-November-15-2017.pdf")${NormalText}"
+	prnt "Using this facility requires that you read and accept the Let's Encrypt terms at ${UnderlineText}$(urlLink "https://letsencrypt.org/documents/LE-SA-v1.2-November-15-2017.pdf")${NormalText}"
 	echo
 	echo "Enable HTTPS?"
-	read -n1 -rp "[y/N] " setupnginx
+	read -rp "[y/N] " setupnginx
 	echo
 	echo
 
@@ -558,7 +558,7 @@ function promptForHTTPS {
 		fi
 
 		echo "Please enter your email address (Optional)"
-		echo "LetsEncrypt will send important certificate notifications here."
+		echo "Let's Encrypt will send important certificate notifications here."
 		read -rp "Email: " nginxemail
 
 		if [ "$NETWORK_TYPE" == "NAT" ]; then
@@ -733,8 +733,8 @@ function installDocker {
 	} &>> "$LOG_FILE"
 }
 
-function installSrcdsDeps {
-	echo "Installing 32-bit dependencies for srcds..."
+function install32BitDeps {
+	echo "Installing 32-bit libraries for SteamCMD applications..."
 	if [ "$APT_IS_PRESENT" ]; then
 		dpkg --add-architecture i386 &>> "$LOG_FILE"
 		apt-get update &>> "$LOG_FILE"
@@ -742,6 +742,10 @@ function installSrcdsDeps {
 
 # shellcheck disable=SC2086
 	$PM_COMMAND "${PM_INSTALL[@]}" $LIB32_PACKAGES &>> "$LOG_FILE"
+}
+
+function installSrcdsDeps {
+	install32BitDeps
 }
 
 function installNginx {
@@ -787,16 +791,14 @@ function installDependencies {
 	if [[ "$installDocker" =~ ^[Yy]$ ]]; then
 		installDocker
 		PROVISIONFLAGS="$PROVISIONFLAGS +ADSModule.Defaults.UseDocker True"
-		installJava=n
-		installsrcdsLibs=n
 	fi
 
 	if [[ "$installJava" =~ ^[Yy]$ ]]; then
 		installJava
 	fi
 
-	if [[ "$installsrcdsLibs" =~ ^[Yy]$ ]]; then
-		installSrcdsDeps
+	if [[ "$install32BitLibs" =~ ^[Yy]$ ]]; then
+		install32BitDeps
 	fi
 
 	if [[ "$installDarkMagic" =~ ^[Yy]$ ]]; then
@@ -827,7 +829,7 @@ function checkConfig {
 				echo "The specified domain $nginxdomain resolves to '$domainip' but your external IP is '$EXTERNAL_IP'."
 				echo "If you've recently changed the IP address this domain resolves to"
 			fi
-			echo "you may need to empty your DNS cache or wait for DNS propogation to complete."
+			echo "you may need to empty your DNS cache or wait for DNS propagation to complete."
 			echo "Aborting setup. You can re-run this setup to try again."
 
 			exit 100
@@ -1017,7 +1019,7 @@ function promptLogUpload {
 	echo "This will upload $LOG_FILE to the hastebin service and give you a URL you can share."
 	echo
 	prnt "The log file may contain sensitive information such as username, any supplied domain names or your systems hostname so if in doubt - check the file manually and upload it yourself."
-	read -n1 -rp "[y/N] " uploadlog
+	read -rp "[y/N] " uploadlog
 	uploadlog=${uploadlog:-n}
 
 	if [[ "$uploadlog" =~ ^[Yy]$ ]]; then
@@ -1078,12 +1080,12 @@ function uninstall_notyettested {
 	echo "UNTESTED CODE - COULD CAUSE TOTAL SYSTEM DATA DESTRUCTION - BACKUP FIRST!"
 	echo
 	echo
-	echo "-- ${BoldText}PERMENENT DATA DESTRUCTION${NormalText} --"
+	echo "-- ${BoldText}PERMANENT DATA DESTRUCTION${NormalText} --"
 	echo
 	echo
-	prnt "Uninstalling AMP will permemently and irreversibly destroy all applications managed by AMP on this system with no way to restore that data."
+	prnt "Uninstalling AMP will permanently and irreversibly destroy all applications managed by AMP on this system, with no way to restore that data."
 	echo
-	echo "Some components such as Java, Docker and other 3rd party tools will not be removed"
+	echo "Some components such as Java, Docker and other 3rd party tools will not be removed."
 	echo
 	echo "Press CTRL+C to cancel."
 	echo
@@ -1177,12 +1179,12 @@ echo -en "Instance Manager:\t\t"| tee -a $INSTALL_SUMMARY
 if [ "$AMPINSTMGR_IS_INSTALLED" ]; then echo "Already installed"; else echo "To be installed"; fi| tee -a $INSTALL_SUMMARY
 echo -en "HTTPS setup:\t\t\t"| tee -a $INSTALL_SUMMARY
 if [[ "$setupnginx" =~ ^[Yy]$ ]]; then echo "Yes, via nginx with domain $nginxdomain"; else echo "No"; fi| tee -a $INSTALL_SUMMARY
-noReason=$( [[ "$installDocker" =~ ^[Yy]$ ]] && echo "Not Required (Using Docker)" || echo "No" )
+noReason=$( [[ "$installDocker" =~ ^[Yy]$ ]] && echo "Not required (replying on Docker)" || echo "No" )
 if [ "$ARCH" == "x86_64" ]; then
 	echo -en "Install Docker:\t\t\t" | tee -a $INSTALL_SUMMARY
 	if [[ "$installDocker" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "No"; fi | tee -a $INSTALL_SUMMARY
 	echo -en "Install 32-bit libraries:\t" | tee -a $INSTALL_SUMMARY
-	if [[ "$installsrcdsLibs" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "$noReason"; fi | tee -a $INSTALL_SUMMARY
+	if [[ "$install32BitLibs" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "$noReason"; fi | tee -a $INSTALL_SUMMARY
 fi
 echo -en "Install Java:\t\t\t"| tee -a $INSTALL_SUMMARY
 if [[ "$installJava" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "$noReason"; fi | tee -a $INSTALL_SUMMARY
