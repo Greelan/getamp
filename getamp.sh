@@ -838,18 +838,30 @@ function checkConfig {
 } 
 
 function addRepo {
-	if [ "$APT_IS_PRESENT" ]; then
+	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
+
+	if [[ "$APT_IS_PRESENT" ]]; then
 		echo "Adding CubeCoders DEB repository..."
-		mkdir -p /usr/share/keyrings
-		echo "deb [signed-by=/usr/share/keyrings/cdn-repo.c7rs.com.gpg] https://cdn-repo.c7rs.com/$reposuffix debian/" > /etc/apt/sources.list.d/cdn-repo.c7rs.com.list
+		[[ -f /etc/apt/sources.list.d/repo.cubecoders.com.list ]] && rm -f /etc/apt/sources.list.d/repo.cubecoders.com.list >/dev/null 2>&1
+		if { [[ "$BASE_ID" == "ubuntu" ]] && version_ge "$BASE_VERSION_ID" "22.04"; } || { [[ "$BASE_ID" == "debian" ]] && version_ge "$BASE_VERSION_ID" "12"; }; then
+			[[ -f /etc/apt/sources.list.d/cdn-repo.c7rs.com.list ]] && rm -f /etc/apt/sources.list.d/cdn-repo.c7rs.com.list >/dev/null 2>&1
+			printf "Types: deb\nURIs: https://cdn-repo.c7rs.com/%s\nSuites: debian\nComponents: \nArchitectures: %s\nSigned-By: /usr/share/keyrings/cdn-repo.c7rs.com.gpg\n" "$reposuffix" "$(dpkg --print-architecture)" \
+			| tee /etc/apt/sources.list.d/cdn-repo.c7rs.com.sources > /dev/null
+		else
+			echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/cdn-repo.c7rs.com.gpg] https://cdn-repo.c7rs.com/$reposuffix debian/" \
+			| tee /etc/apt/sources.list.d/cdn-repo.c7rs.com.list > /dev/null
+		fi
 		{ 
-			wget -O /usr/share/keyrings/cdn-repo.c7rs.com.gpg https://cdn-repo.c7rs.com/archive.key;
-			apt-get update 
+			install -d -m 0755 /usr/share/keyrings
+			wget -O /usr/share/keyrings/cdn-repo.c7rs.com.gpg https://cdn-repo.c7rs.com/archive.key
+			$PM_COMMAND update 
 		} &>> "$LOG_FILE"
-	elif [ "$YUM_IS_PRESENT" ]; then
+	elif [[ "$YUM_IS_PRESENT" ]]; then
 		echo "Adding CubeCoders RPM repository..."
-		wget -P /etc/yum.repos.d "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo" &>> "$LOG_FILE"
-		yum check-update &>> "$LOG_FILE"
+		{
+		$PM_COMMAND "${PM_INSTALL[@]}" yum-utils
+		yum-config-manager --add-repo "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo"
+		} &>> "$LOG_FILE"
 	fi
 }
 
