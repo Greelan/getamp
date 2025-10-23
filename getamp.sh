@@ -764,59 +764,92 @@ EOF
 }
 
 function installDocker {
+	echo ""
+	
 	if [ "$DOCKER_IS_INSTALLED" ]; then
-		echo "Docker already installed. Skipping..."
-		{
-			usermod -a -G docker $AMP_SYS_USER
-			systemctl enable docker
-			systemctl start docker
-		} &>> "$LOG_FILE"
-		return
+		echo "Docker is already installed."
+		echo "If you didn't install Docker from the official Docker repositories, then it may not operate correctly with AMP."
+		echo "Do you want to remove the existing Docker installation and install Docker from the official Docker repositories, if available for your system?"
+		echo "This will also stop any existing running Docker containers."
+		read -rp "[y/N] " reInstallDocker
+		reInstallDocker=${reInstallDocker:-n}
+		if [[ ! "$reInstallDocker" =~ ^[Yy]$ ]]; then
+			echo "Skipping Docker re-installation..."
+			{
+				usermod -a -G docker $AMP_SYS_USER
+				systemctl enable docker
+				systemctl start docker
+			} &>> "$LOG_FILE"
+			return
+		fi
 	fi
 
 	echo "Installing Docker..."
 
 	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
+	DOCKER_REPO_AVAILABLE=false
 
     case "$BASE_ID" in
         ubuntu|debian)
-            [[ -f /usr/share/keyrings/download.docker.com.gpg ]] && rm -f /usr/share/keyrings/download.docker.com.gpg
-			[[ -f /etc/apt/sources.list.d/download.docker.com.list ]] && rm -f /etc/apt/sources.list.d/download.docker.com.list
-			[[ -f /etc/apt/sources.list.d/docker.list ]] && rm -f /etc/apt/sources.list.d/docker.list
-			wget -qO /usr/share/keyrings/docker.asc https://download.docker.com/linux/$BASE_ID/gpg
-            chmod a+r /usr/share/keyrings/docker.asc
-			if {[ "$BASE_ID" = "ubuntu" ] && version_ge "$BASE_VERSION_ID" "22.04";} || {[ "$BASE_ID" = "debian" ] && version_ge "$BASE_VERSION_ID" "12";}; then
-				printf "Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /usr/share/keyrings/docker.asc\n" "$BASE_ID" "$BASE_SUITE" "$(dpkg --print-architecture)" \
-				| tee /etc/apt/sources.list.d/docker.sources > /dev/null
-			else
-				echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/$BASE_ID $BASE_SUITE stable" \
-				| tee /etc/apt/sources.list.d/docker.list > /dev/null
+			if wget -q --spider https://download.docker.com/linux/$BASE_ID/dists/$BASE_SUITE/ >/dev/null 2>&1; then
+				DOCKER_REPO_AVAILABLE=true
+				if [[ "$reInstallDocker" =~ ^[Yy]$ ]]; then
+					REMOVE_DOCKER_PACKAGES="docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc"
+				fi
+				[[ -f /usr/share/keyrings/download.docker.com.gpg ]] && rm -f /usr/share/keyrings/download.docker.com.gpg >/dev/null 2>&1
+				[[ -f /etc/apt/sources.list.d/download.docker.com.list ]] && rm -f /etc/apt/sources.list.d/download.docker.com.list >/dev/null 2>&1
+				[[ -f /etc/apt/sources.list.d/docker.list ]] && rm -f /etc/apt/sources.list.d/docker.list >/dev/null 2>&1
+				wget -qO /usr/share/keyrings/docker.asc https://download.docker.com/linux/$BASE_ID/gpg
+				chmod a+r /usr/share/keyrings/docker.asc
+				if { [[ "$BASE_ID" == "ubuntu" ]] && version_ge "$BASE_VERSION_ID" "22.04"; } || { [[ "$BASE_ID" == "debian" ]] && version_ge "$BASE_VERSION_ID" "12"; }; then
+					printf "Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /usr/share/keyrings/docker.asc\n" "$BASE_ID" "$BASE_SUITE" "$(dpkg --print-architecture)" \
+					| tee /etc/apt/sources.list.d/docker.sources > /dev/null
+				else
+					echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/$BASE_ID $BASE_SUITE stable" \
+					| tee /etc/apt/sources.list.d/docker.list > /dev/null
+				fi
+				$PM_COMMAND update &>> "$LOG_FILE"
+				DOCKER_PACKAGES="docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
 			fi
-            $PM_COMMAND update &>> "$LOG_FILE"
-            DOCKER_PACKAGES="docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
             ;;
         rhel|fedora|centos)
-            if [ "$PM_COMMAND" == "yum" ]; then
-                $PM_COMMAND "${PM_INSTALL[@]}" yum-utils
-                yum-config-manager --add-repo https://download.docker.com/linux/$BASE_ID/docker-ce.repo
-            elif [ "$PM_COMMAND" == "dnf" ]; then
-                $PM_COMMAND "${PM_INSTALL[@]}" dnf-plugins-core
-                $PM_COMMAND config-manager --add-repo https://download.docker.com/linux/$BASE_ID/docker-ce.repo
-            fi
-            DOCKER_PACKAGES="docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+			if wget -q --spider https://download.docker.com/linux/$BASE_ID/ >/dev/null 2>&1; then
+				DOCKER_REPO_AVAILABLE=true
+				[[ -f /etc/yum.repos.d/docker-ce.repo ]] && rm -f /etc/yum.repos.d/docker-ce.repo >/dev/null 2>&1
+				if [[ "$reInstallDocker" =~ ^[Yy]$ ]]; then
+					REMOVE_DOCKER_PACKAGES="docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-selinux docker-engine-selinux docker-engine podman runc"
+				fi
+				if [ "$PM_COMMAND" == "yum" ]; then
+					$PM_COMMAND "${PM_INSTALL[@]}" yum-utils
+					yum-config-manager --add-repo https://download.docker.com/linux/$BASE_ID/docker-ce.repo
+				elif [ "$PM_COMMAND" == "dnf" ]; then
+					$PM_COMMAND "${PM_INSTALL[@]}" dnf-plugins-core
+					$PM_COMMAND config-manager --add-repo https://download.docker.com/linux/$BASE_ID/docker-ce.repo
+				fi
+				DOCKER_PACKAGES="docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+			fi
             ;;
-        *)
-            echo "Automatic Docker installation is not supported on your system at this time. Please investigate installing it manually after setup completes. See https://docs.docker.com/engine/install/ for more information. If you install Docker manually, also ensure that the '$AMP_SYS_USER' user is added to the 'docker' group."
-            exit 65
-            ;;
+        *) ;;
     esac
 
-	{
-		$PM_COMMAND "${PM_INSTALL[@]}" $DOCKER_PACKAGES
-		systemctl enable docker
-		systemctl start docker
-		usermod -a -G docker $AMP_SYS_USER
-	} &>> "$LOG_FILE"
+	if ! $DOCKER_REPO_AVAILABLE; then
+		echo "Automatic Docker installation is not supported on your system at this time. Please investigate installing it manually after setup completes. See https://docs.docker.com/engine/install/ for more information. If you install Docker manually, also ensure that the '$AMP_SYS_USER' user is added to the 'docker' group."
+		echo "Continuing without installing Docker..."
+		PROVISIONFLAGS="${PROVISIONFLAGS/ +ADSModule.Defaults.UseDocker True/}"
+		return
+	else
+		{
+			if [[ "$reInstallDocker" =~ ^[Yy]$ ]]l then
+				docker ps -q | xargs -r docker stop
+				systemctl stop docker
+				for pkg in $REMOVE_DOCKER_PACKAGES; do $PM_COMMAND "${PM_UNINSTALL[@]}" $pkg; done
+			fi
+			$PM_COMMAND "${PM_INSTALL[@]}" $DOCKER_PACKAGES
+			systemctl enable docker
+			systemctl start docker
+			usermod -a -G docker $AMP_SYS_USER
+		} &>> "$LOG_FILE"
+	fi
 }
 
 function installSrcdsDeps {
