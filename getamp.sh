@@ -44,7 +44,7 @@ JQ_IS_PRESENT="$(isPresent jq)"
 IP_IS_PRESENT="$(isPresent ip)"
 #SNAP_IS_PRESENT="$(isPresent snap)"
 STATUS_FILE=/opt/cubecoders/amp/shared/WebRoot/installState.json
-JAVA_PACKAGE="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk"
+JAVA_PACKAGES="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk temurin-25-jdk"
 
 echo " - Checking environment..."
 if [[ $EUID -ne 0 ]]; then
@@ -159,7 +159,7 @@ elif [ "$PACMAN_IS_PRESENT" ]; then
 	LIB32_PACKAGES="lib32-glibc lib32-gcc-libs"
 	PREREQ_PACKAGES="wget tmux socat unzip git dnsutils tar jq qrencode"
 	CERTBOT_PACKAGE=certbot-nginx
-	JAVA_PACKAGE="jre8-openjdk-headless jre-openjdk-headless"
+	JAVA_PACKAGES="jre8-openjdk-headless jre11-openjdk-headless jre17-openjdk-headless jre21-openjdk-headless jre-openjdk-headless"
 
 	if [ "$ARCH" != "x86_64" ]; then
 		echo "AMP only supports aarch64 on Debian and Red Hat/CentOS based distros at this time."
@@ -648,54 +648,54 @@ function updateSystem {
 }
 
 function installJava {
-	if [ "$APT_IS_PRESENT" ]; then
-	{
-		echo Adding Adoptium APT repository...
-		wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor > /usr/share/keyrings/adoptium.gpg
-		echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $VERSION_CODENAME main" | tee /etc/apt/sources.list.d/adoptium.list
-		apt-get update;
-	} &>> "$LOG_FILE"
-	elif [ "$YUM_IS_PRESENT" ]; then
-		if [[ "$ID" == "almalinux" ]]; then
-			echo "Distro is AlmaLinux, Pretending to be RHEL instead."
-			ID="rhel"
+	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
+	JAVA_INSTALL_AVAILABLE=false
+
+	if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]]; then
+		if wget -q --spider https://packages.adoptium.net/ui/native/deb/dists/$BASE_SUITE/ >/dev/null 2>&1; then
+			JAVA_INSTALL_AVAILABLE=true
+			echo "Adding Adoptium APT repository and installing Adoptium Temurin Java LTS versions..."
+			if { [[ "$BASE_ID" == "ubuntu" ]] && version_ge "$BASE_VERSION_ID" "22.04"; } || { [[ "$BASE_ID" == "debian" ]] && version_ge "$BASE_VERSION_ID" "12"; }; then
+				printf "Types: deb\nURIs: https://packages.adoptium.net/artifactory/deb\nSuites: %s\nComponents: main\nSigned-By: /etc/apt/keyrings/adoptium.gpg\n" "$BASE_SUITE" | tee /etc/apt/sources.list.d/adoptium.sources >/dev/null
+			else
+				echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $BASE_SUITE main" \
+				| tee /etc/apt/sources.list.d/adoptium.list > /dev/null
+			fi
+			{
+				install -d -m 0755 /usr/share/keyrings
+				wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /usr/share/keyrings/adoptium.gpg
+				$PM_COMMAND update
+			} &>> "$LOG_FILE"
 		fi
-
-		# Check if the version contains a dot
-		if [[ $VERSION_ID == *.* ]]; then
-		  # Extract the major part of the version before the dot
-		  VERSION_ID=${VERSION_ID%%.*}
-		fi
-
-		if [[ ! "$ID" =~ ^(amazonlinux|centos|fedora|opensuse|oraclelinux|rhel|rocky|sles)$ ]]; then
-			echo "The distribution $ID is not supported by Adoptium. Please install Java manually."
-			return
-		fi
-
-		echo Adding Adoptium RPM repository...
-		
-		BASEURL=https://packages.adoptium.net/artifactory/rpm/$ID/$VERSION_ID/$(arch)
-
-		if wget --spider "$BASEURL" >/dev/null 2>&1; then
-			cat <<EOF > /etc/yum.repos.d/adoptium.repo
+	elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|opensuse|oraclelinux|rhel|rocky|sles|almalinux|fedora-asahi-linux)$ ]]; then
+		REPO_ID=$([[ "$ID" =~ ^(almalinux|fedora-asahi-linux)$ ]] && echo "$BASE_ID" || echo "$ID")
+		if wget -q --spider https://packages.adoptium.net/ui/native/rpm/$REPO_ID/${VERSION_ID%%.*}/$ARCH/ >/dev/null 2>&1; then
+			JAVA_INSTALL_AVAILABLE=true
+			echo "Adding Adoptium RPM repository and installing Adoptium Temurin Java LTS versions..."
+			{
+  				cat <<EOF
 [Adoptium]
 name=Adoptium
-baseurl=$BASEURL
+baseurl=https://packages.adoptium.net/artifactory/rpm/$REPO_ID/${VERSION_ID%%.*}/$ARCH
 enabled=1
 gpgcheck=1
 gpgkey=https://packages.adoptium.net/artifactory/api/gpg/key/public
 EOF
-			yum check-update &>> "$LOG_FILE"
-		else
-			echo "Java could not be installed automatically for your distribution. Please install it manually after setup completes."
-			echo
-			read -n 1 -s -r -p "Press enter to continue."
+			} > /etc/yum.repos.d/adoptium.repo 2>>"$LOG_FILE"
 		fi
-	fi
+	elif [[ "$BASE_ID" =~ "arch" ]]; then
+		JAVA_INSTALL_AVAILABLE=true
+		echo "Installing OpenJDK LTS versions from your system repositories..."
+    fi
 
-	echo "Installing Java for Minecraft..."
-# shellcheck disable=SC2086
-	$PM_COMMAND "${PM_INSTALL[@]}" $JAVA_PACKAGE &>> "$LOG_FILE"
+	if ! $JAVA_INSTALL_AVAILABLE; then
+		echo "Automatic Java installation is not supported on your system at this time. Please investigate installing the required Java versions manually after setup completes."
+		echo "Continuing without installing Java..."
+		return
+	else
+			# shellcheck disable=SC2086
+			$PM_COMMAND "${PM_INSTALL[@]}" $JAVA_PACKAGES &>> "$LOG_FILE"
+	fi
 }
 
 function installDocker {
