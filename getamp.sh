@@ -319,12 +319,12 @@ function showSystemInfo {
 }
 
 function configureDarkMagicNew {
-	if [ "$ARCH" != "aarch64" ]; then
+	if [[ "$ARCH" != "aarch64" ]]; then
 		echo "CPx2 is only applicable to aarch64 systems."
 		exit
 	fi
 
-	if [ "$ID" != "ubuntu" ] && [ "$ID" != "debian" ]; then
+	if [[ ! "$ID" =~ ^(ubuntu|debian)$ ]]; then
 		echo "CPx2 is only supported on Ubuntu and Debian at this time."
 		exit
 	fi
@@ -340,6 +340,7 @@ function configureDarkMagicNew {
 		fi
 		$PM_COMMAND "${PM_INSTALL[@]}" $ARM_PACKAGES
 		
+		install -d -m 0755 /usr/share/keyrings
 		wget -qO- "https://pi-apps-coders.github.io/box86-debs/KEY.gpg" | gpg --dearmor --yes -o /usr/share/keyrings/box86-archive-keyring.gpg
 		wget -qO- "https://pi-apps-coders.github.io/box64-debs/KEY.gpg" | gpg --dearmor --yes -o /usr/share/keyrings/box64-archive-keyring.gpg
 		if { [[ "$ID" == "ubuntu" ]] && version_ge "$VERSION_ID" "22.04"; } || { [[ "$ID" == "debian" ]] && version_ge "$VERSION_ID" "12"; }; then
