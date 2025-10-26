@@ -344,8 +344,8 @@ function configureDarkMagicNew {
 		wget -qO- "https://pi-apps-coders.github.io/box86-debs/KEY.gpg" | gpg --dearmor --yes -o /usr/share/keyrings/box86-archive-keyring.gpg
 		wget -qO- "https://pi-apps-coders.github.io/box64-debs/KEY.gpg" | gpg --dearmor --yes -o /usr/share/keyrings/box64-archive-keyring.gpg
 		if { [[ "$ID" == "ubuntu" ]] && version_ge "$VERSION_ID" "22.04"; } || { [[ "$ID" == "debian" ]] && version_ge "$VERSION_ID" "12"; }; then
-			[[ -f /etc/apt/sources.list.d/box86.list ]] && rm /etc/apt/sources.list.d/box86.list
-			[[ -f /etc/apt/sources.list.d/box64.list ]] && rm /etc/apt/sources.list.d/box64.list
+			[[ -f /etc/apt/sources.list.d/box86.list ]] && rm -f /etc/apt/sources.list.d/box86.list
+			[[ -f /etc/apt/sources.list.d/box64.list ]] && rm -f /etc/apt/sources.list.d/box64.list
 			printf "Types: deb\nURIs: https://Pi-Apps-Coders.github.io/box86-debs/debian\nSuites: ./\nSigned-By: /usr/share/keyrings/box86-archive-keyring.gpg" | tee /etc/apt/sources.list.d/box86.sources >/dev/null
 			printf "Types: deb\nURIs: https://Pi-Apps-Coders.github.io/box64-debs/debian\nSuites: ./\nSigned-By: /usr/share/keyrings/box64-archive-keyring.gpg" | tee /etc/apt/sources.list.d/box64.sources >/dev/null
 		else
