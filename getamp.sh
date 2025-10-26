@@ -807,6 +807,7 @@ function installDocker {
 					| tee /etc/apt/sources.list.d/docker.list > /dev/null
 				fi
 				{
+					install -d -m 0755 /usr/share/keyrings
 					wget -qO /usr/share/keyrings/docker.asc https://download.docker.com/linux/$BASE_ID/gpg
 					chmod a+r /usr/share/keyrings/docker.asc
 					$PM_COMMAND update
