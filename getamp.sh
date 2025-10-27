@@ -64,7 +64,7 @@ function mapUpstream {
 			return 1 ;;
 		rhel|rocky|almalinux)
 			echo "rhel||${VERSION_ID:-}"; return 0 ;;
-		fedora)
+		fedora|fedora-asahi-remix)
 			echo "fedora||${VERSION_ID:-}"; return 0 ;;
 		centos|ol|oraclelinux)
 			echo "centos||${VERSION_ID:-}"; return 0 ;;
