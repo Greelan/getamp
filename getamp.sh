@@ -675,7 +675,7 @@ function installJava {
   				cat <<EOF
 [Adoptium]
 name=Adoptium
-baseurl=https://packages.adoptium.net/artifactory/rpm/$ID/${VERSION_ID%%.*}/$ARCH/
+baseurl=https://packages.adoptium.net/artifactory/rpm/$ID/${VERSION_ID%%.*}/$ARCH
 enabled=1
 gpgcheck=1
 gpgkey=https://packages.adoptium.net/artifactory/api/gpg/key/public
