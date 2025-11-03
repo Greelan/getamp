@@ -68,7 +68,7 @@ function mapUpstream {
 			echo "fedora||${VERSION_ID:-}"; return 0 ;;
 		centos|ol|oraclelinux)
 			echo "centos||${VERSION_ID:-}"; return 0 ;;
-		arch|manjaro|endeavouros|garuda)
+		arch|manjaro|endeavouros|garuda|cachyos)
 			echo "arch||${VERSION_ID:-rolling}"; return 0 ;;
 		*)
 			return 1 ;;
@@ -839,11 +839,22 @@ function installDocker {
         *) ;;
     esac
 
-	if ! $DOCKER_REPO_AVAILABLE; then
-		echo "Automatic Docker installation is not supported on your system at this time. Please investigate installing it manually after setup completes. See https://docs.docker.com/engine/install/ for more information. If you install Docker manually, also ensure that the '$AMP_SYS_USER' user is added to the 'docker' group."
-		echo "Continuing without installing Docker..."
-		PROVISIONFLAGS="${PROVISIONFLAGS/ +ADSModule.Defaults.UseDocker True/}"
-		return
+	if [[ ! $DOCKER_REPO_AVAILABLE ]]; then
+		if [[ "$DOCKER_IS_INSTALLED" ]]; then
+			echo "Automatic Docker re-installation is not supported on your system at this time. After setup completes, please investigate using your current Docker installation with AMP, and if necessary re-installing Docker manually from the official Docker sources. See https://docs.docker.com/engine/install/ for more information. If you re-install Docker manually, also ensure that the '$AMP_SYS_USER' user is in the 'docker' group."
+			echo "Continuing without re-installing Docker..."
+			{
+				usermod -a -G docker $AMP_SYS_USER
+				systemctl enable docker
+				systemctl start docker
+			} &>> "$LOG_FILE"
+			return
+		else
+			echo "Automatic Docker installation is not supported on your system at this time. Please investigate installing it manually after setup completes. See https://docs.docker.com/engine/install/ for more information. If you install Docker manually, also ensure that the '$AMP_SYS_USER' user is added to the 'docker' group."
+			echo "Continuing without installing Docker..."
+			PROVISIONFLAGS="${PROVISIONFLAGS/ +ADSModule.Defaults.UseDocker True/}"
+			return
+		fi
 	else
 		{
 			if [[ "$reInstallDocker" =~ ^[Yy]$ ]] && [[ -n "$REMOVE_DOCKER_PACKAGES" ]]; then
