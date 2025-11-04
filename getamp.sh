@@ -521,7 +521,7 @@ function promptForDeps {
 	echo "Would you like to isolate your AMP instances by running them inside Docker containers?"
 	prnt "This provides an additional layer of protection at the expense of a minor performance impact. It is strongly recommended if you are going to allow untrusted users access to AMP."
 	echo
-	prnt "Using Docker is also strongly recommended if you want to run Windows-based applications on this system, as it removes the requirement to install additional dependencies on the host."
+	prnt "Using Docker is also strongly recommended for running some applications, as it removes the requirement to install additional dependencies on the host."
 	case "$ID" in
 		ubuntu|debian|rhel|centos|fedora) ;;
 		*) prnt "Note that, given that your distribution does not have a specific Docker repository, if this option is selected an attempt will be made to install Docker from the appropriate upstream repository." ;;
