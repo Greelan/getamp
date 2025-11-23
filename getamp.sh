@@ -365,7 +365,7 @@ function configureDarkMagicNew {
 			mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
 		fi
 		$PM_COMMAND "${PM_INSTALL[@]}" $BOX_PACKAGES
-		if [[ ! -f /proc/sys/fs/binfmt_misc/box86 ]]; then
+		if [[ ! -f /proc/sys/fs/binfmt_misc/box86 ]] && [[ ! -f /proc/sys/fs/binfmt_misc/x86 ]]; then
 			echo ':box86:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/local/bin/box86:' | tee /proc/sys/fs/binfmt_misc/register
 		fi
 		if [[ ! -f /proc/sys/fs/binfmt_misc/box64 ]]; then
