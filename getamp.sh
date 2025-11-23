@@ -338,7 +338,7 @@ function configureDarkMagicNew {
 		else
 			ARM_PACKAGES="libgcc-s1:armhf libstdc++6:armhf zlib1g:armhf libbz2-1.0:armhf libcurl4:armhf libcurl3-gnutls:armhf libncurses5:armhf libtinfo5:armhf libsdl2-2.0-0:armhf libssl3:armhf"
 		fi
-		$PM_COMMAND "${PM_INSTALL[@]}" $ARM_PACKAGES
+		$PM_COMMAND "${PM_INSTALL[@]}" $ARM_PACKAGES binfmt-support
 		
 		install -d -m 0755 /usr/share/keyrings
 		wget -qO- "https://pi-apps-coders.github.io/box86-debs/KEY.gpg" | gpg --dearmor --yes -o /usr/share/keyrings/box86-archive-keyring.gpg
@@ -361,8 +361,16 @@ function configureDarkMagicNew {
 			*) BOX_PACKAGES="box86-generic-arm:armhf box64-generic-arm" ;;
 		esac
 
-    	$PM_COMMAND "${PM_INSTALL[@]}" $BOX_PACKAGES
-
+    	if ! mountpoint -q /proc/sys/fs/binfmt_misc; then
+			mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+		fi
+		$PM_COMMAND "${PM_INSTALL[@]}" $BOX_PACKAGES
+		if [[ ! -f /proc/sys/fs/binfmt_misc/box86 ]]; then
+			echo ':box86:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/local/bin/box86:' | tee /proc/sys/fs/binfmt_misc/register
+		fi
+		if [[ ! -f /proc/sys/fs/binfmt_misc/box64 ]]; then
+			echo ':box64:M::\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00:\xff\xff\xff\xff\xff\xff\xff\x00\x00\x00\x00\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/local/bin/box64:' | tee /proc/sys/fs/binfmt_misc/register
+		fi
 		systemctl restart systemd-binfmt
 	} &>> "$LOG_FILE"
 }
