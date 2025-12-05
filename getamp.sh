@@ -44,7 +44,7 @@ JQ_IS_PRESENT="$(isPresent jq)"
 IP_IS_PRESENT="$(isPresent ip)"
 #SNAP_IS_PRESENT="$(isPresent snap)"
 STATUS_FILE=/opt/cubecoders/amp/shared/WebRoot/installState.json
-JAVA_PACKAGE="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk"
+JAVA_PACKAGE="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk temurin-25-jdk"
 
 echo " - Checking environment..."
 if [[ $EUID -ne 0 ]]; then
@@ -651,7 +651,7 @@ function installJava {
 	if [ "$APT_IS_PRESENT" ]; then
 	{
 		echo Adding Adoptium APT repository...
-		wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor > /usr/share/keyrings/adoptium.gpg
+		wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /usr/share/keyrings/adoptium.gpg
 		echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $VERSION_CODENAME main" | tee /etc/apt/sources.list.d/adoptium.list
 		apt-get update;
 	} &>> "$LOG_FILE"
