@@ -7,7 +7,7 @@ function fetchString { result=$( [ -n "$CURL_IS_PRESENT" ] && curl --ipv4 -s -L 
 function urlLink { echo -e "\e]8;;${1}\a${2:-${1}}\e]8;;\a"; }
 function prnt { echo -e "$1" | fold -s -w "$cols"; }
 function check_version { local distro; distro=$(echo "$1" | tr '[:upper:]' '[:lower:]'); [[ "$distro" == "$(echo "$ID" | tr '[:upper:]' '[:lower:]')" && "$(printf '%s\n' "$3" "$2" | sort -V | head -n1)" != "$3" ]] && echo "AMP requires $1 $3 or newer. You are currently running $VERSION_ID. Please upgrade to $1 $3 and try again." && exit 1; }
-version_ge() {
+function version_ge {
 	# Returns 0 (true) if $1 >= $2
 	[ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
 }
