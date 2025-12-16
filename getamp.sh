@@ -1002,10 +1002,23 @@ function addRepo {
 		} &>> "$LOG_FILE"
 	elif [[ "$YUM_IS_PRESENT" ]]; then
 		echo "Adding CubeCoders RPM repository..."
+		#{
+		#$PM_COMMAND "${PM_INSTALL[@]}" yum-utils
+		#yum-config-manager --add-repo "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo"
+		#} &>> "$LOG_FILE"
+		# Workaround for broken repo file on aarch64
+		$PM_COMMAND "${PM_INSTALL[@]}" yum-utils &>> "$LOG_FILE"
 		{
-		$PM_COMMAND "${PM_INSTALL[@]}" yum-utils
-		yum-config-manager --add-repo "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo"
-		} &>> "$LOG_FILE"
+			cat <<EOF
+[CubeCoders]
+name=CubeCoders Limited
+baseurl=https://cdn-repo.c7rs.com/${reposuffix}
+enabled=1
+gpgcheck=0
+EOF
+		} > ./CubeCoders.repo 2>>"$LOG_FILE"
+		yum-config-manager --add-repo ./CubeCoders.repo &>> "$LOG_FILE"
+		rm ./CubeCoders.repo > /dev/null
 	fi
 }
 
