@@ -810,11 +810,6 @@ function installPodman {
 		return
 	fi
 
-	if [ "$ARCH" != "x86_64" ]; then
-		echo "AMP's Podman mode is only supported on x86_64 systems. You are running $ARCH"
-		exit 64
-	fi
-
 	echo "Installing Podman..."
 	{
 		$PM_COMMAND "${PM_INSTALL[@]}" $PODMAN_PACKAGES
