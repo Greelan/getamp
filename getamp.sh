@@ -12,6 +12,23 @@ function version_ge {
 	[ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
 }
 
+function desktop_session_running()
+{
+  if command -v loginctl >/dev/null 2>&1; then
+    while read -r sid _; do
+      type="$(loginctl show-session "$sid" -p Type --value 2>/dev/null)"
+      remote="$(loginctl show-session "$sid" -p Remote --value 2>/dev/null)"
+      [ "$remote" = "no" ] && { [ "$type" = "x11" ] || [ "$type" = "wayland" ]; } && return 0
+    done < <(loginctl list-sessions --no-legend 2>/dev/null)
+  fi
+
+  [ -d /tmp/.X11-unix ] && ls /tmp/.X11-unix/X* >/dev/null 2>&1 && return 0
+  [ -d /run/user ] && find /run/user -maxdepth 2 -type s -name 'wayland-*' 2>/dev/null | grep -q . && return 0
+  command -v pgrep >/dev/null 2>&1 && pgrep -x Xorg Xwayland gnome-shell kwin_wayland weston sway >/dev/null 2>&1 && return 0
+
+  return 1
+}
+
 function mapUpstream {
 	case "${ID:-}" in
 		ubuntu)
@@ -80,7 +97,7 @@ echo "Please wait while GetAMP examines your system and network configuration...
 PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 ARCH=$(arch 2> /dev/null || uname -m)
 AMP_SYS_USER=amp
-GETAMP_VERSION="3.1.0"
+GETAMP_VERSION="3.3.0"
 
 if [ -z "$AMP_ADS_PORT" ]; then AMP_ADS_PORT="8080"; fi
 if [ -z "$AMP_ADS_IP" ]; then AMP_ADS_IP="0.0.0.0"; fi
@@ -99,15 +116,18 @@ DIG_IS_PRESENT="$(isPresent dig)"
 USERADD_IS_PRESENT="$(isPresent useradd)"
 TPUT_IS_PRESENT="$(isPresent tput)"
 SELINUX_IS_INSTALLED="$(isPresent setsebool)"
-DOCKER_IS_INSTALLED="$(isPresent docker)"
+PODMAN_IS_INSTALLED="$(isPresent podman)"
+UIDMAP_IS_INSTALLED="$(isPresent newuidmap)"
 APT_IS_PRESENT="$(isPresent apt-get)"
 YUM_IS_PRESENT="$(isPresent yum)"
 PACMAN_IS_PRESENT="$(isPresent pacman)"
+ZYPPER_IS_PRESENT="$(isPresent zypper)"
 JQ_IS_PRESENT="$(isPresent jq)"
 IP_IS_PRESENT="$(isPresent ip)"
 #SNAP_IS_PRESENT="$(isPresent snap)"
 STATUS_FILE=/opt/cubecoders/amp/shared/WebRoot/installState.json
 JAVA_PACKAGES="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk temurin-25-jdk"
+PODMAN_PACKAGES="podman uidmap"
 
 echo " - Checking environment..."
 if [[ $EUID -ne 0 ]]; then
@@ -184,7 +204,7 @@ source /etc/os-release
 if [ "$APT_IS_PRESENT" ]; then
 	export DEBIAN_FRONTEND=noninteractive
 	PM_COMMAND=apt-get
-	PM_INSTALL=(install -y)
+	PM_INSTALL=(install -y --no-remove --no-downgrades)
 	PM_UNINSTALL=(remove -y)
 	CERTBOT_PACKAGE=python3-certbot-nginx
 	LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses5:i386 libbz2-1.0:i386 libtinfo5:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
@@ -228,6 +248,21 @@ elif [ "$PACMAN_IS_PRESENT" ]; then
 		echo "AMP only supports aarch64 on Debian and RHEL/CentOS based distros at this time."
 		exit
 	fi
+elif [ "$ZYPPER_IS_PRESENT" ]; then
+    PM_COMMAND=zypper
+    PM_INSTALL=(install -y --no-force-resolution)
+    PM_UNINSTALL=(remove -y)
+    LIB32_PACKAGES="glibc-32bit libstdc++6-32bit"
+    PREREQ_PACKAGES="wget tmux socat unzip git bind-utils tar jq qrencode libicu"
+    CERTBOT_PACKAGE=python3-certbot-nginx
+    PM_LOCK_FILE="/var/run/zypp.pid"
+    INSTALL_IN_PROGRESS=$(isFileOpen $PM_LOCK_FILE)
+
+    # openSUSE: require x86_64 or aarch64 similar policy
+    if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
+        echo "AMP is only supported on x86_64 and aarch64 systems. You are running $ARCH"
+        exit 64
+    fi
 else
 	echo "This system doesn't appear to be supported. No supported package manager (apt/yum/pacman) was found."
 	echo "Automated installation is only available for Debian, RHEL and Arch based distributions, including Ubuntu and CentOS."
@@ -237,7 +272,7 @@ fi
 
 if [ "$ID" == "photon" ]; then
 	PREREQ_PACKAGES="wget tmux socat unzip git bindutils tar jq sqlite-devel"
-	FORCE_DOCKER=1
+	FORCE_PODMAN=1
 fi
 
 if [ "$INSTALL_IN_PROGRESS" ]; then
@@ -355,7 +390,7 @@ else
 		echo
 		echo "GetAMP has detected that you are using Oracle Cloud."
 		echo
-		prnt "Extra steps are required to run AMP on Oracle Cloud, if you have not yet done this, ${BoldText}press CTRL+C now to stop the setup${NormalText} and consult the documentation at ${UnderlineText}$(urlLink "https://support.cubecoders.com/docs?topic=2307&utm_term=oracle")${NormalText} before continuing."
+		prnt "Extra steps are required to run AMP on Oracle Cloud, if you have not yet done this, ${BoldText}press CTRL+C now to stop the setup${NormalText} and consult the documentation at ${UnderlineText}$(urlLink "https://ccl.sh/2307")${NormalText} before continuing."
 		echo
 		prnt "Make sure you are using ${BoldText}Ubuntu 22.04 or newer${NormalText} as per the guide. Older versions are not supported on ARM hardware."
 		echo
@@ -401,6 +436,7 @@ function configureDarkMagicNew {
 		else
 			ARM_PACKAGES="libgcc-s1:armhf libstdc++6:armhf zlib1g:armhf libbz2-1.0:armhf libcurl4:armhf libcurl3-gnutls:armhf libncurses5:armhf libtinfo5:armhf libsdl2-2.0-0:armhf libssl3:armhf"
 		fi
+		# shellcheck disable=SC2086
 		$PM_COMMAND "${PM_INSTALL[@]}" $ARM_PACKAGES binfmt-support
 		
 		install -d -m 0755 /usr/share/keyrings
@@ -508,28 +544,25 @@ function promptForAMPUser {
 }
 
 function promptForDeps {
-	if [ -n "$FORCE_DOCKER" ]; then
-		installDocker=y
+	if [ -n "$FORCE_PODMAN" ]; then
+		installPodman=y
 		return; 
 	fi
 
 	if [ -n "$USE_ANSWERS" ]; then
 		installJava=$ANSWER_INSTALLJAVA
 		install32BitLibs=${ANSWER_INSTALL32BITLIBS:-${ANSWER_INSTALLSRCDSLIBS:-}}
-		installDocker=$ANSWER_INSTALLDOCKER
+		installPodman=$ANSWER_INSTALLPODMAN
 		return
 	fi
 
-	echo "Would you like to isolate your AMP instances by running them inside Docker containers?"
+	echo "Would you like to isolate your AMP instances by running them inside Podman containers?"
 	prnt "This provides an additional layer of protection at the expense of a minor performance impact. It is strongly recommended if you are going to allow untrusted users access to AMP."
 	echo
-	prnt "Using Docker is also strongly recommended for running some applications, as it removes the requirement to install additional dependencies on the host."
-	case "$ID" in
-		ubuntu|debian|rhel|centos|fedora) ;;
-		*) prnt "Note that, given that your distribution does not have a specific Docker repository, if this option is selected an attempt will be made to install Docker from the appropriate upstream repository." ;;
-	esac
-	read -rp "[y/N] " installDocker
-	installDocker=${installDocker:-n}
+	prnt "Using Podman is also strongly recommended for running some applications, as it removes the requirement to install additional dependencies on the host."
+	prnt "If you are using a Desktop environment / GUI on this system, you should use this option to avoid package conflicts."
+	read -rp "[y/N] " installPodman
+	installPodman=${installPodman:-n}
 	echo
 	echo
 
@@ -768,111 +801,25 @@ EOF
 	fi
 }
 
-function installDocker {
-	echo ""
-	
-	if [[ "$DOCKER_IS_INSTALLED" ]]; then
-		echo "Docker is already installed."
-		echo "If you didn't install Docker from the official Docker repositories, then it may not operate correctly with AMP."
-		echo "Do you want to remove the existing Docker installation and install Docker from the official Docker repositories, if available for your system?"
-		echo "This will also stop any existing running Docker containers."
-		read -rp "[y/N] " reInstallDocker
-		reInstallDocker=${reInstallDocker:-n}
-		if [[ ! "$reInstallDocker" =~ ^[Yy]$ ]]; then
-			echo "Skipping Docker re-installation..."
-			{
-				usermod -a -G docker $AMP_SYS_USER
-				systemctl enable docker
-				systemctl start docker
-			} &>> "$LOG_FILE"
-			return
-		fi
-	fi
-
-	echo "Installing Docker..."
-
-	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
-	DOCKER_REPO_AVAILABLE=false
-
-    case "$BASE_ID" in
-        ubuntu|debian)
-			if wget -q --spider https://download.docker.com/linux/$BASE_ID/dists/$BASE_SUITE/ >/dev/null 2>&1; then
-				DOCKER_REPO_AVAILABLE=true
-				if [[ "$reInstallDocker" =~ ^[Yy]$ ]]; then
-					REMOVE_DOCKER_PACKAGES="docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc"
-				fi
-				[[ -f /usr/share/keyrings/download.docker.com.gpg ]] && rm -f /usr/share/keyrings/download.docker.com.gpg >/dev/null 2>&1
-				[[ -f /etc/apt/sources.list.d/download.docker.com.list ]] && rm -f /etc/apt/sources.list.d/download.docker.com.list >/dev/null 2>&1
-				[[ -f /etc/apt/sources.list.d/docker.list ]] && rm -f /etc/apt/sources.list.d/docker.list >/dev/null 2>&1
-				if { [[ "$BASE_ID" == "ubuntu" ]] && version_ge "$BASE_VERSION_ID" "22.04"; } || { [[ "$BASE_ID" == "debian" ]] && version_ge "$BASE_VERSION_ID" "12"; }; then
-					printf "Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /usr/share/keyrings/docker.asc\n" "$BASE_ID" "$BASE_SUITE" "$(dpkg --print-architecture)" \
-					| tee /etc/apt/sources.list.d/docker.sources > /dev/null
-				else
-					echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/$BASE_ID $BASE_SUITE stable" \
-					| tee /etc/apt/sources.list.d/docker.list > /dev/null
-				fi
-				{
-					install -d -m 0755 /usr/share/keyrings
-					wget -qO /usr/share/keyrings/docker.asc https://download.docker.com/linux/$BASE_ID/gpg
-					chmod a+r /usr/share/keyrings/docker.asc
-					$PM_COMMAND update
-					DOCKER_PACKAGES="docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
-				} &>> "$LOG_FILE"
-			fi
-            ;;
-        rhel|fedora|centos)
-			if wget -q --spider https://download.docker.com/linux/$BASE_ID/ >/dev/null 2>&1; then
-				DOCKER_REPO_AVAILABLE=true
-				[[ -f /etc/yum.repos.d/docker-ce.repo ]] && rm -f /etc/yum.repos.d/docker-ce.repo >/dev/null 2>&1
-				if [[ "$reInstallDocker" =~ ^[Yy]$ ]]; then
-					REMOVE_DOCKER_PACKAGES="docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-selinux docker-engine-selinux docker-engine podman runc"
-				fi
-				if [[ "$PM_COMMAND" == "yum" ]]; then
-					{
-						$PM_COMMAND "${PM_INSTALL[@]}" yum-utils
-						yum-config-manager --add-repo https://download.docker.com/linux/$BASE_ID/docker-ce.repo
-					} &>> "$LOG_FILE"
-				elif [[ "$PM_COMMAND" == "dnf" ]]; then
-					{
-						$PM_COMMAND "${PM_INSTALL[@]}" dnf-plugins-core
-						$PM_COMMAND config-manager --add-repo https://download.docker.com/linux/$BASE_ID/docker-ce.repo
-					} &>> "$LOG_FILE"
-				fi
-				DOCKER_PACKAGES="docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
-			fi
-            ;;
-        *) ;;
-    esac
-
-	if [[ ! $DOCKER_REPO_AVAILABLE ]]; then
-		if [[ "$DOCKER_IS_INSTALLED" ]]; then
-			echo "Automatic Docker re-installation is not supported on your system at this time. After setup completes, please investigate using your current Docker installation with AMP, and if necessary re-installing Docker manually from the official Docker sources. See https://docs.docker.com/engine/install/ for more information. If you re-install Docker manually, also ensure that the '$AMP_SYS_USER' user is in the 'docker' group."
-			echo "Continuing without re-installing Docker..."
-			{
-				usermod -a -G docker $AMP_SYS_USER
-				systemctl enable docker
-				systemctl start docker
-			} &>> "$LOG_FILE"
-			return
-		else
-			echo "Automatic Docker installation is not supported on your system at this time. Please investigate installing it manually after setup completes. See https://docs.docker.com/engine/install/ for more information. If you install Docker manually, also ensure that the '$AMP_SYS_USER' user is added to the 'docker' group."
-			echo "Continuing without installing Docker..."
-			PROVISIONFLAGS="${PROVISIONFLAGS/ +ADSModule.Defaults.UseDocker True/}"
-			return
-		fi
-	else
+function installPodman {
+	if [ "$PODMAN_IS_INSTALLED" ] && [ "$UIDMAP_IS_INSTALLED" ]; then
+		echo "Podman already installed. Skipping..."
 		{
-			if [[ "$reInstallDocker" =~ ^[Yy]$ ]] && [[ -n "$REMOVE_DOCKER_PACKAGES" ]]; then
-				docker ps -q | xargs -r docker stop
-				systemctl stop docker
-				for pkg in $REMOVE_DOCKER_PACKAGES; do $PM_COMMAND "${PM_UNINSTALL[@]}" $pkg; done
-			fi
-			$PM_COMMAND "${PM_INSTALL[@]}" $DOCKER_PACKAGES
-			systemctl enable docker
-			systemctl start docker
-			usermod -a -G docker $AMP_SYS_USER
+			loginctl enable-linger amp
 		} &>> "$LOG_FILE"
+		return
 	fi
+
+	if [ "$ARCH" != "x86_64" ]; then
+		echo "AMP's Podman mode is only supported on x86_64 systems. You are running $ARCH"
+		exit 64
+	fi
+
+	echo "Installing Podman..."
+	{
+		$PM_COMMAND "${PM_INSTALL[@]}" $PODMAN_PACKAGES
+		loginctl enable-linger amp
+	} &>> "$LOG_FILE"
 }
 
 function install32BitDeps {
@@ -930,8 +877,8 @@ function installDependencies {
 
 	JQ_IS_PRESENT="$(isPresent jq)"
 
-	if [[ "$installDocker" =~ ^[Yy]$ ]]; then
-		installDocker
+	if [[ "$installPodman" =~ ^[Yy]$ ]]; then
+		installPodman
 		PROVISIONFLAGS="$PROVISIONFLAGS +ADSModule.Defaults.UseDocker True"
 	fi
 
@@ -1019,6 +966,10 @@ EOF
 		} > ./CubeCoders.repo 2>>"$LOG_FILE"
 		yum-config-manager --add-repo ./CubeCoders.repo &>> "$LOG_FILE"
 		rm ./CubeCoders.repo > /dev/null
+    elif [ "$ZYPPER_IS_PRESENT" ]; then
+        echo "Adding CubeCoders repository for Zypper..."
+		wget -P /etc/zypp/repos.d "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo" &>> "$LOG_FILE"
+        zypper refresh &>> "$LOG_FILE"
 	fi
 }
 
@@ -1196,7 +1147,7 @@ function promptLogUpload {
 
 	if [[ "$uploadlog" =~ ^[Yy]$ ]]; then
 		RESPONSE=$(curl -s -X POST -F "content=<${LOG_FILE}" https://dpaste.org/api/)
-		URL=$(echo $RESPONSE | grep -o 'https://dpaste.org/[a-zA-Z0-9]*')
+		URL=$(echo "$RESPONSE" | grep -o 'https://dpaste.org/[a-zA-Z0-9]*')
 		if [ -z "$url" ]; then
 			echo "Failed to upload log file. Please check $LOG_FILE manually."
 		else
@@ -1247,6 +1198,12 @@ function debian13upgrade {
 	fi
 }
 
+function rebootNow {
+	echo "Rebooting system now..."
+	sync;sync;sync
+	reboot
+}
+
 function uninstall_notyettested {
 	clear
 	echo "UNTESTED CODE - COULD CAUSE TOTAL SYSTEM DATA DESTRUCTION - BACKUP FIRST!"
@@ -1257,7 +1214,7 @@ function uninstall_notyettested {
 	echo
 	prnt "Uninstalling AMP will permanently and irreversibly destroy all applications managed by AMP on this system, with no way to restore that data."
 	echo
-	echo "Some components such as Java, Docker and other 3rd party tools will not be removed."
+	echo "Some components such as Java, Podman and other 3rd party tools will not be removed."
 	echo
 	echo "Press CTRL+C to cancel."
 	echo
@@ -1351,9 +1308,9 @@ echo -en "Instance Manager:\t\t"| tee -a $INSTALL_SUMMARY
 if [ "$AMPINSTMGR_IS_INSTALLED" ]; then echo "Already installed"; else echo "To be installed"; fi| tee -a $INSTALL_SUMMARY
 echo -en "HTTPS setup:\t\t\t"| tee -a $INSTALL_SUMMARY
 if [[ "$setupnginx" =~ ^[Yy]$ ]]; then echo "Yes, via nginx with domain $nginxdomain"; else echo "No"; fi| tee -a $INSTALL_SUMMARY
-noReason=$( [[ "$installDocker" =~ ^[Yy]$ ]] && echo "Not required (replying on Docker)" || echo "No" )
-echo -en "Install Docker:\t\t\t" | tee -a $INSTALL_SUMMARY
-if [[ "$installDocker" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "No"; fi | tee -a $INSTALL_SUMMARY
+noReason=$( [[ "$installPodman" =~ ^[Yy]$ ]] && echo "Not required (replying on Podman)" || echo "No" )
+echo -en "Install Podman:\t\t\t" | tee -a $INSTALL_SUMMARY
+if [[ "$installPodman" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "No"; fi | tee -a $INSTALL_SUMMARY
 if [ "$ARCH" == "x86_64" ]; then
 	echo -en "Install 32-bit libraries:\t" | tee -a $INSTALL_SUMMARY
 	if [[ "$install32BitLibs" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "$noReason"; fi | tee -a $INSTALL_SUMMARY
