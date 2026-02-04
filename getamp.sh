@@ -1,15 +1,95 @@
 #!/bin/bash
-#CubeCoders AMP Installer (C)2019-2025 CubeCoders Limited
+#CubeCoders AMP Installer (C) 2019-2025 CubeCoders Limited
 
 function isPresent { command -v "$1" &> /dev/null && echo 1; }
 function isFileOpen { lsof "$1" &> /dev/null && echo 1; }
 function fetchString { result=$( [ -n "$CURL_IS_PRESENT" ] && curl --ipv4 -s -L "$1" 2>/dev/null || wget --inet4-only -qO- "$1" 2>/dev/null ); echo "${result:-${2:-}}"; }
 function urlLink { echo -e "\e]8;;${1}\a${2:-${1}}\e]8;;\a"; }
 function prnt { echo -e "$1" | fold -s -w "$cols"; }
-function check_version { local distro; distro=$(echo "$1" | tr '[:upper:]' '[:lower:]'); [[ "$distro" == "$(echo "$ID" | tr '[:upper:]' '[:lower:]')" && "$(printf '%s\n' "$3" "$2" | sort -V | head -n1)" != "$3" ]] && echo "AMP reqiures $1 $3 or newer. You are currently running $VERSION_ID. Please upgrade to $1 $3 and try again." && exit 1; }
-version_ge() {
+function check_version { local distro; distro=$(echo "$1" | tr '[:upper:]' '[:lower:]'); [[ "$distro" == "$(echo "$ID" | tr '[:upper:]' '[:lower:]')" && "$(printf '%s\n' "$3" "$2" | sort -V | head -n1)" != "$3" ]] && echo "AMP requires $1 $3 or newer. You are currently running $VERSION_ID. Please upgrade to $1 $3 and try again." && exit 1; }
+function version_ge {
 	# Returns 0 (true) if $1 >= $2
 	[ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
+}
+
+function desktop_session_running()
+{
+  if command -v loginctl >/dev/null 2>&1; then
+    while read -r sid _; do
+      type="$(loginctl show-session "$sid" -p Type --value 2>/dev/null)"
+      remote="$(loginctl show-session "$sid" -p Remote --value 2>/dev/null)"
+      [ "$remote" = "no" ] && { [ "$type" = "x11" ] || [ "$type" = "wayland" ]; } && return 0
+    done < <(loginctl list-sessions --no-legend 2>/dev/null)
+  fi
+
+  [ -d /tmp/.X11-unix ] && ls /tmp/.X11-unix/X* >/dev/null 2>&1 && return 0
+  [ -d /run/user ] && find /run/user -maxdepth 2 -type s -name 'wayland-*' 2>/dev/null | grep -q . && return 0
+  command -v pgrep >/dev/null 2>&1 && pgrep -x Xorg Xwayland gnome-shell kwin_wayland weston sway >/dev/null 2>&1 && return 0
+
+  return 1
+}
+
+function mapUpstream {
+	case "${ID:-}" in
+		ubuntu)
+			echo "ubuntu|"${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"|${VERSION_ID:-}"; return 0 ;;
+		debian)
+			echo "debian|"${VERSION_CODENAME:-}"|${VERSION_ID:-}"; return 0 ;;
+		raspbian)
+			case "${VERSION_CODENAME:-}" in
+				bullseye) echo "debian|bullseye|11"; return 0 ;;
+				bookworm) echo "debian|bookworm|12"; return 0 ;;
+				trixie) echo "debian|trixie|13"; return 0 ;;
+			esac
+			return 1 ;;
+		kali)
+			case "${VERSION_ID%%.*}" in
+				2021|2022) echo "debian|bullseye|11"; return 0 ;;
+				2023|2024) echo "debian|bookworm|12"; return 0 ;;
+				2025|2026) echo "debian|trixie|13"; return 0 ;;
+			esac
+			return 1 ;;
+		linuxmint)
+			case "${VERSION_ID%%.*}" in
+			    6) echo "debian|bookworm|12"; return 0 ;;
+				7) echo "debian|trixie|13"; return 0 ;;
+				20) echo "ubuntu|focal|20.04"; return 0 ;;
+				21) echo "ubuntu|jammy|22.04"; return 0 ;;
+				22) echo "ubuntu|noble|24.04"; return 0 ;;
+			esac
+			return 1 ;;
+		pop)
+			case "${VERSION_ID:-}" in
+				20.04*) echo "ubuntu|focal|20.04"; return 0 ;;
+				22.04*) echo "ubuntu|jammy|22.04"; return 0 ;;
+				24.04*) echo "ubuntu|noble|24.04"; return 0 ;;
+			esac
+			return 1 ;;
+		zorin)
+			case "${VERSION_ID%%.*}" in
+				16) echo "ubuntu|focal|20.04"; return 0 ;;
+				17) echo "ubuntu|jammy|22.04"; return 0 ;;
+				18) echo "ubuntu|noble|24.04"; return 0 ;;
+			esac
+			return 1 ;;
+		elementary)
+			case "${VERSION_ID%%.*}" in
+				6) echo "ubuntu|focal|20.04"; return 0 ;;
+				7) echo "ubuntu|jammy|22.04"; return 0 ;;
+				8) echo "ubuntu|noble|24.04"; return 0 ;;
+			esac
+			return 1 ;;
+		rhel|rocky|almalinux)
+			echo "rhel||${VERSION_ID:-}"; return 0 ;;
+		fedora|fedora-asahi-remix)
+			echo "fedora||${VERSION_ID:-}"; return 0 ;;
+		centos|ol|oraclelinux)
+			echo "centos||${VERSION_ID:-}"; return 0 ;;
+		arch|manjaro|endeavouros|garuda|cachyos)
+			echo "arch||${VERSION_ID:-rolling}"; return 0 ;;
+		*)
+			return 1 ;;
+	esac
 }
 
 echo "Please wait while GetAMP examines your system and network configuration..."
@@ -17,7 +97,7 @@ echo "Please wait while GetAMP examines your system and network configuration...
 PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 ARCH=$(arch 2> /dev/null || uname -m)
 AMP_SYS_USER=amp
-GETAMP_VERSION="3.1.0"
+GETAMP_VERSION="3.3.0"
 
 if [ -z "$AMP_ADS_PORT" ]; then AMP_ADS_PORT="8080"; fi
 if [ -z "$AMP_ADS_IP" ]; then AMP_ADS_IP="0.0.0.0"; fi
@@ -36,15 +116,18 @@ DIG_IS_PRESENT="$(isPresent dig)"
 USERADD_IS_PRESENT="$(isPresent useradd)"
 TPUT_IS_PRESENT="$(isPresent tput)"
 SELINUX_IS_INSTALLED="$(isPresent setsebool)"
-DOCKER_IS_INSTALLED="$(isPresent docker)"
+PODMAN_IS_INSTALLED="$(isPresent podman)"
+UIDMAP_IS_INSTALLED="$(isPresent newuidmap)"
 APT_IS_PRESENT="$(isPresent apt-get)"
 YUM_IS_PRESENT="$(isPresent yum)"
 PACMAN_IS_PRESENT="$(isPresent pacman)"
+ZYPPER_IS_PRESENT="$(isPresent zypper)"
 JQ_IS_PRESENT="$(isPresent jq)"
 IP_IS_PRESENT="$(isPresent ip)"
 #SNAP_IS_PRESENT="$(isPresent snap)"
 STATUS_FILE=/opt/cubecoders/amp/shared/WebRoot/installState.json
-JAVA_PACKAGE="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk"
+JAVA_PACKAGES="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk temurin-25-jdk"
+PODMAN_PACKAGES="podman uidmap"
 
 echo " - Checking environment..."
 if [[ $EUID -ne 0 ]]; then
@@ -121,21 +204,21 @@ source /etc/os-release
 if [ "$APT_IS_PRESENT" ]; then
 	export DEBIAN_FRONTEND=noninteractive
 	PM_COMMAND=apt-get
-	PM_INSTALL=(install -y)
+	PM_INSTALL=(install -y --no-remove --no-downgrades)
 	PM_UNINSTALL=(remove -y)
 	CERTBOT_PACKAGE=python3-certbot-nginx
-	LIB32_PACKAGES="lib32stdc++6 lib32z1 libncurses5:i386 libbz2-1.0:i386 libtinfo5:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
+	LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses5:i386 libbz2-1.0:i386 libtinfo5:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
 	PREREQ_PACKAGES="dirmngr software-properties-common apt-transport-https gpg-agent dnsutils jq git unzip wget gpg qrencode ca-certificates"
-	#If we're on Ubuntu 24.04 or newer: 
+	# If we're on Ubuntu 24.04 or newer: 
 	if [ "$ID" = "ubuntu" ] && version_ge "$VERSION_ID" "24.04"; then
 		echo " - Updating packages list for Ubuntu >= 24.04..."
-		LIB32_PACKAGES="lib32stdc++6 lib32z1 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
+		LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3t64-gnutls:i386 libsdl2-2.0-0:i386"
 	fi
-	#Debian 13 or newer
+	# Debian 13 or newer
 	if [ "$ID" = "debian" ] && version_ge "$VERSION_ID" "13"; then
 		echo " - Updating packages list for Debian >= 13..."
 		PREREQ_PACKAGES="dirmngr apt-transport-https gpg-agent dnsutils jq git unzip wget gpg qrencode libicu76 ca-certificates"
-		LIB32_PACKAGES="lib32stdc++6 lib32z1 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
+		LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3t64-gnutls:i386 libsdl2-2.0-0:i386"
 	fi
 	
 	PM_LOCK_FILE="/var/lib/dpkg/lock"
@@ -159,22 +242,37 @@ elif [ "$PACMAN_IS_PRESENT" ]; then
 	LIB32_PACKAGES="lib32-glibc lib32-gcc-libs"
 	PREREQ_PACKAGES="wget tmux socat unzip git dnsutils tar jq qrencode"
 	CERTBOT_PACKAGE=certbot-nginx
-	JAVA_PACKAGE="jre8-openjdk-headless jre-openjdk-headless"
+	JAVA_PACKAGES="jre8-openjdk-headless jre11-openjdk-headless jre17-openjdk-headless jre21-openjdk-headless jre-openjdk-headless"
 
 	if [ "$ARCH" != "x86_64" ]; then
-		echo "AMP only supports aarch64 on Debian and Red Hat/CentOS based distros at this time."
+		echo "AMP only supports aarch64 on Debian and RHEL/CentOS based distros at this time."
 		exit
 	fi
+elif [ "$ZYPPER_IS_PRESENT" ]; then
+    PM_COMMAND=zypper
+    PM_INSTALL=(install -y --no-force-resolution)
+    PM_UNINSTALL=(remove -y)
+    LIB32_PACKAGES="glibc-32bit libstdc++6-32bit"
+    PREREQ_PACKAGES="wget tmux socat unzip git bind-utils tar jq qrencode libicu"
+    CERTBOT_PACKAGE=python3-certbot-nginx
+    PM_LOCK_FILE="/var/run/zypp.pid"
+    INSTALL_IN_PROGRESS=$(isFileOpen $PM_LOCK_FILE)
+
+    # openSUSE: require x86_64 or aarch64 similar policy
+    if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
+        echo "AMP is only supported on x86_64 and aarch64 systems. You are running $ARCH"
+        exit 64
+    fi
 else
 	echo "This system doesn't appear to be supported. No supported package manager (apt/yum/pacman) was found."
-	echo "Automated installation is only availble for Debian, Red-Hat and Arch based distrubitions, including Ubuntu and CentOS."
+	echo "Automated installation is only available for Debian, RHEL and Arch based distributions, including Ubuntu and CentOS."
 	echo "$NAME is not a supported distribution at this time."
 	exit
 fi
 
 if [ "$ID" == "photon" ]; then
 	PREREQ_PACKAGES="wget tmux socat unzip git bindutils tar jq sqlite-devel"
-	FORCE_DOCKER=1
+	FORCE_PODMAN=1
 fi
 
 if [ "$INSTALL_IN_PROGRESS" ]; then
@@ -226,7 +324,7 @@ check_version "Debian" "10"
 check_version "CentOS" "8"
 
 if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
-	echo "AMP is only supported on x86_64 and aarch64 systems. You are running $ARCH"
+	echo "AMP is only supported on x86_64 and aarch64 systems. You are running $ARCH."
 	exit 64
 fi
 
@@ -237,7 +335,7 @@ if [ "$ARCH" == "aarch64" ]; then
 	echo
 	echo "You are installing AMP on an aarch64 system."
 	echo
-	prnt "This means that many game servers will not run on this system, or may only run via CPx2 emulation which may significantly reduce performance."
+	prnt "This means that many game servers will not run on this system, or may only run via CPx2 emulation which may reduce performance."
 	echo 
 	echo "For more information on aarch64 compatible titles, please see:"
 	urlLink "https://discourse.cubecoders.com/docs?topic=1870&utm_term=aarch64"
@@ -292,7 +390,7 @@ else
 		echo
 		echo "GetAMP has detected that you are using Oracle Cloud."
 		echo
-		prnt "Extra steps are required to run AMP on Oracle Cloud, if you have not yet done this, ${BoldText}press CTRL+C now to stop the setup${NormalText} and consult the documentation at ${UnderlineText}$(urlLink "https://support.cubecoders.com/docs?topic=2307&utm_term=oracle")${NormalText} before continuing."
+		prnt "Extra steps are required to run AMP on Oracle Cloud, if you have not yet done this, ${BoldText}press CTRL+C now to stop the setup${NormalText} and consult the documentation at ${UnderlineText}$(urlLink "https://ccl.sh/2307")${NormalText} before continuing."
 		echo
 		prnt "Make sure you are using ${BoldText}Ubuntu 22.04 or newer${NormalText} as per the guide. Older versions are not supported on ARM hardware."
 		echo
@@ -319,58 +417,61 @@ function showSystemInfo {
 }
 
 function configureDarkMagicNew {
-	if [ "$ARCH" != "aarch64" ]; then
+	if [[ "$ARCH" != "aarch64" ]]; then
 		echo "CPx2 is only applicable to aarch64 systems."
 		exit
 	fi
 
-	if [ "$ID" != "ubuntu" ] && [ "$ID" != "debian" ]; then
+	if [[ ! "$ID" =~ ^(ubuntu|debian)$ ]]; then
 		echo "CPx2 is only supported on Ubuntu and Debian at this time."
 		exit
 	fi
-
-	oldpwd=$(pwd)
 	
 	echo "Installing CPx2..."
-	echo " - Configuring package manager and installing dependencies..."
 	{
-	dpkg --add-architecture armhf
-	$PM_COMMAND update
-	if [ "$ID" = "ubuntu" ] && version_ge "$VERSION_ID" "24.04"; then
-		ARM_PACAKGES="git build-essential cmake libsdl2-dev libsdl2-2.0-0 gcc-arm-linux-gnueabihf libc6:armhf libncurses6:armhf libstdc++6:armhf libtinfo6:armhf"
-	else
-		ARM_PACAKGES="git build-essential cmake libsdl2-dev libsdl2-2.0-0 gcc-arm-linux-gnueabihf libc6:armhf libncurses5:armhf libstdc++6:armhf libtinfo5:armhf"
-	fi
+		dpkg --add-architecture armhf
+		$PM_COMMAND update
+		if { [[ "$ID" == "ubuntu" ]] && version_ge "$VERSION_ID" "24.04"; } || { [[ "$ID" == "debian" ]] && version_ge "$VERSION_ID" "13"; }; then
+			ARM_PACKAGES="libgcc-s1:armhf libstdc++6:armhf zlib1g:armhf libbz2-1.0:armhf libcurl4t64:armhf libcurl3t64-gnutls:armhf libncurses6:armhf libtinfo6:armhf libsdl2-2.0-0:armhf libssl3t64:armhf"
+		else
+			ARM_PACKAGES="libgcc-s1:armhf libstdc++6:armhf zlib1g:armhf libbz2-1.0:armhf libcurl4:armhf libcurl3-gnutls:armhf libncurses5:armhf libtinfo5:armhf libsdl2-2.0-0:armhf libssl3:armhf"
+		fi
+		# shellcheck disable=SC2086
+		$PM_COMMAND "${PM_INSTALL[@]}" $ARM_PACKAGES binfmt-support
+		
+		install -d -m 0755 /usr/share/keyrings
+		wget -qO- "https://pi-apps-coders.github.io/box86-debs/KEY.gpg" | gpg --dearmor --yes -o /usr/share/keyrings/box86-archive-keyring.gpg
+		wget -qO- "https://pi-apps-coders.github.io/box64-debs/KEY.gpg" | gpg --dearmor --yes -o /usr/share/keyrings/box64-archive-keyring.gpg
+		if { [[ "$ID" == "ubuntu" ]] && version_ge "$VERSION_ID" "22.04"; } || { [[ "$ID" == "debian" ]] && version_ge "$VERSION_ID" "12"; }; then
+			[[ -f /etc/apt/sources.list.d/box86.list ]] && rm -f /etc/apt/sources.list.d/box86.list
+			[[ -f /etc/apt/sources.list.d/box64.list ]] && rm -f /etc/apt/sources.list.d/box64.list
+			printf "Types: deb\nURIs: https://Pi-Apps-Coders.github.io/box86-debs/debian\nSuites: ./\nSigned-By: /usr/share/keyrings/box86-archive-keyring.gpg" | tee /etc/apt/sources.list.d/box86.sources >/dev/null
+			printf "Types: deb\nURIs: https://Pi-Apps-Coders.github.io/box64-debs/debian\nSuites: ./\nSigned-By: /usr/share/keyrings/box64-archive-keyring.gpg" | tee /etc/apt/sources.list.d/box64.sources >/dev/null
+		else
+			echo "deb [signed-by=/usr/share/keyrings/box86-archive-keyring.gpg] https://Pi-Apps-Coders.github.io/box86-debs/debian ./" | tee /etc/apt/sources.list.d/box86.list > /dev/null
+			echo "deb [signed-by=/usr/share/keyrings/box64-archive-keyring.gpg] https://Pi-Apps-Coders.github.io/box64-debs/debian ./" | tee /etc/apt/sources.list.d/box64.list > /dev/null
+		fi
+		$PM_COMMAND update
 
-	$PM_COMMAND "${PM_INSTALL[@]}" $ARM_PACAKGES
+		MODEL=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || grep -m1 'Model' /proc/cpuinfo || true)
+		case "$MODEL" in
+			*"Raspberry Pi 4"*) BOX_PACKAGES="box86-rpi4arm64:armhf box64-rpi4arm64" ;;
+			*"Raspberry Pi 3"*) BOX_PACKAGES="box86-rpi3arm64:armhf box64-rpi3arm64" ;;
+			*) BOX_PACKAGES="box86-generic-arm:armhf box64-generic-arm" ;;
+		esac
+
+    	if ! mountpoint -q /proc/sys/fs/binfmt_misc; then
+			mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+		fi
+		$PM_COMMAND "${PM_INSTALL[@]}" $BOX_PACKAGES
+		if [[ ! -f /proc/sys/fs/binfmt_misc/box86 ]] && [[ ! -f /proc/sys/fs/binfmt_misc/x86 ]]; then
+			echo ":box86:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/local/bin/box86:" | tee /proc/sys/fs/binfmt_misc/register >/dev/null
+		fi
+		if [[ ! -f /proc/sys/fs/binfmt_misc/box64 ]]; then
+			echo ":box64:M::\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00:\xff\xff\xff\xff\xff\xff\xff\x00\x00\x00\x00\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/local/bin/box64:" | tee /proc/sys/fs/binfmt_misc/register >/dev/null
+		fi
+		systemctl restart systemd-binfmt
 	} &>> "$LOG_FILE"
-	cd ~ || return
-	echo " - Fetching sources..."
-	{
-	git clone --depth=1 https://github.com/ptitSeb/box86
-	git clone --depth=1 https://github.com/ptitSeb/box64
-	} &>> "$LOG_FILE"
-	echo " - Compiling 32-bit x86 support... (This may take a while)"
-	{
-		mkdir ~/box86/build;
-		cd ~/box86/build || return;
-		cmake .. -DRPI4ARM64=1 -DCMAKE_BUILD_TYPE=RelWithDebInfo;
-		make "-j$(nproc)";
-		make install;
-	} &>> "$LOG_FILE"
-	echo " - Compiling x86_64 support... (This may take a while)"
-	{
-		mkdir ~/box64/build;
-		cd ~/box64/build || return;
-		cmake .. -DRPI4ARM64=1 -DCMAKE_BUILD_TYPE=RelWithDebInfo;
-		make "-j$(nproc)";
-		make install;
-	} &>> "$LOG_FILE"
-	echo " - Restarting system services..."
-	systemctl restart systemd-binfmt &>> "$LOG_FILE"
-	rm -r ~/box86 ~/box64
-	cd "$oldpwd" || return
-	echo " - Done!"
 }
 
 function showWelcome {
@@ -378,7 +479,7 @@ function showWelcome {
 		clear
 		echo
 		echo "GetAMP v$GETAMP_VERSION, ©2019-$(date +%Y) CubeCoders Limited"
-		prnt "AMP QuickStart installation script for Debian, Red-Hat and Arch based GNU/Linux distributions"
+		prnt "AMP QuickStart installation script for Debian, RHEL and Arch based GNU/Linux distributions"
 		prnt "This installer will perform the following:"
 		echo 
 		echo " * Install any pending system updates"
@@ -443,52 +544,52 @@ function promptForAMPUser {
 }
 
 function promptForDeps {
-	if [ -n "$FORCE_DOCKER" ]; then
-		installDocker=y
+	if [ -n "$FORCE_PODMAN" ]; then
+		installPodman=y
 		return; 
 	fi
 
 	if [ -n "$USE_ANSWERS" ]; then
 		installJava=$ANSWER_INSTALLJAVA
-		installsrcdsLibs=$ANSWER_INSTALLSRCDSLIBS
-		installDocker=$ANSWER_INSTALLDOCKER
+		install32BitLibs=${ANSWER_INSTALL32BITLIBS:-${ANSWER_INSTALLSRCDSLIBS:-}}
+		installPodman=$ANSWER_INSTALLPODMAN
 		return
 	fi
 
+	echo "Would you like to isolate your AMP instances by running them inside Podman containers?"
+	prnt "This provides an additional layer of protection at the expense of a minor performance impact. It is strongly recommended if you are going to allow untrusted users access to AMP."
+	echo
+	prnt "Using Podman is also strongly recommended for running some applications, as it removes the requirement to install additional dependencies on the host."
+	prnt "If you are using a Desktop environment / GUI on this system, you should use this option to avoid package conflicts."
+	read -rp "[y/N] " installPodman
+	installPodman=${installPodman:-n}
+	echo
+	echo
+
+	echo "Will you be running Minecraft servers on this installation?"
+	echo "If selected, this installs the required versions of Java."
+    echo "If you selected to install Docker, and intend to run Minecraft servers only inside Docker containers, you do not need to select this option. It is however useful for flexibility."
+	read -rp "[Y/n] " installJava
+	installJava=${installJava:-y}
+	echo
+	echo
+
 	if [ "$ARCH" == "x86_64" ]; then
-		echo "Would you like to isolate your AMP instances by running them inside Docker containers?"
-		prnt "This provides an additional layer of protection at the expense of a minor performance impact. It is strongly recommended if you are going to allow untrusted users access to AMP."
-		echo
-		prnt "Using Docker is strongly recommended if you want to run Windows-based applications on this system, as it removes the requirement to install additional dependencies on the host."
-		read -n1 -rp "[y/N] " installDocker
-		installDocker=${installDocker:-n}
-		echo
-		echo
-	fi
-
-	if [[ ! "$installDocker" =~ ^[Yy]$ ]]; then
-		echo "Will you be running Minecraft servers on this installation?"
-		echo "If selected, this installs the required versions of Java."
-		read -n1 -rp "[Y/n] " installJava
-		installJava=${installJava:-y}
+		echo "Will you be running applications that rely on SteamCMD (Rust, ARK, CS2, Palworld, etc) on this installation?"
+		echo "If selected, this will install the required additional 32-bit libraries."
+        echo "If you selected to install Docker, and intend to run such applications only inside Docker containers, you do not need to select this option. It is however useful for flexibility."
+		read -rp "[Y/n] " install32BitLibs
+		install32BitLibs=${install32BitLibs:-y}
 		echo
 		echo
-
-		if [ "$ARCH" == "x86_64" ]; then
-			echo "Will you be running applications that rely on SteamCMD? (Rust, Ark, CSGO, TF2, etc) on this installation?"
-			echo "If selected, this will install the required additional 32-bit libraries."
-			read -n1 -rp "[Y/n] " installsrcdsLibs
-			installsrcdsLibs=${installsrcdsLibs:-y}
-			echo
-			echo
-		fi
 	fi
 
 	if [ "$ARCH" == "aarch64" ] && { [ "$ID" == "ubuntu" ] || [ "$ID" == "debian" ]; }; then
 		echo "Would you like to configure this system for cross-platform execution (CPx2)?"
-		prnt "This allows AMP to run a limited number of x86_64 applications on aarch64 systems via emulation. But this comes at a significant performance impact."
+		echo "CPx2 involves installing Box86 and Box64 on this system from the Pi-Apps-Coders repositories (https://github.com/Pi-Apps-Coders)."
+		prnt "This allows AMP to run a limited number of x86_64 applications on aarch64 systems via emulation - see https://discourse.cubecoders.com/t/aarch64-arm64-compatibility/1870. But this comes at a performance impact."
 		echo
-		read -n1 -rp "[y/N] " installDarkMagic
+		read -rp "[y/N] " installDarkMagic
 		installDarkMagic=${installDarkMagic:-n}
 		echo
 		echo
@@ -526,10 +627,10 @@ function promptForHTTPS {
 	echo
 	echo "${BoldText}Do not choose this option if you do not already own a domain.${NormalText}"
 	echo 
-	prnt "Using this facility requires that you read and accept the LetsEncrypt terms at ${UnderlineText}$(urlLink "https://letsencrypt.org/documents/LE-SA-v1.2-November-15-2017.pdf")${NormalText}"
+	prnt "Using this facility requires that you read and accept the Let's Encrypt terms at ${UnderlineText}$(urlLink "https://letsencrypt.org/documents/LE-SA-v1.2-November-15-2017.pdf")${NormalText}"
 	echo
 	echo "Enable HTTPS?"
-	read -n1 -rp "[y/N] " setupnginx
+	read -rp "[y/N] " setupnginx
 	echo
 	echo
 
@@ -558,7 +659,7 @@ function promptForHTTPS {
 		fi
 
 		echo "Please enter your email address (Optional)"
-		echo "LetsEncrypt will send important certificate notifications here."
+		echo "Let's Encrypt will send important certificate notifications here."
 		read -rp "Email: " nginxemail
 
 		if [ "$NETWORK_TYPE" == "NAT" ]; then
@@ -578,6 +679,7 @@ function createUser {
 		exit 11
 	fi
 	echo "$AMP_SYS_USER:$syspass" | chpasswd
+    install -d -m 0700 -o $AMP_SYS_USER -g $AMP_SYS_USER "/run/user/$(id -u $AMP_SYS_USER)"
 	{
 		echo "export TERM=xterm"
 		# shellcheck disable=2028
@@ -585,6 +687,7 @@ function createUser {
 		# shellcheck disable=2028
 		echo "alias sudo=\"echo \\\"You cannot use sudo while logged in as the 'amp' user, you need to be logged in as an administrator/root user do to that.\\\" && false\""
 		echo "alias htop=\"htop -u $AMP_SYS_USER\""
+        echo "export XDG_RUNTIME_DIR=\"/run/user/$(id -u $AMP_SYS_USER)\""
 	} >> /home/$AMP_SYS_USER/.profile
 	mkdir -p "/home/$AMP_SYS_USER/.config/htop/"
 	cat <<EOF > /home/$AMP_SYS_USER/.config/htop/htoprc
@@ -648,93 +751,79 @@ function updateSystem {
 }
 
 function installJava {
-	if [ "$APT_IS_PRESENT" ]; then
-	{
-		echo Adding Adoptium APT repository...
-		wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor > /usr/share/keyrings/adoptium.gpg
-		echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $VERSION_CODENAME main" | tee /etc/apt/sources.list.d/adoptium.list
-		apt-get update;
-	} &>> "$LOG_FILE"
-	elif [ "$YUM_IS_PRESENT" ]; then
-		if [[ "$ID" == "almalinux" ]]; then
-			echo "Distro is AlmaLinux, Pretending to be RHEL instead."
-			ID="rhel"
+	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
+	JAVA_INSTALL_AVAILABLE=false
+
+	if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]]; then
+		if wget -q --spider https://packages.adoptium.net/ui/native/deb/dists/$BASE_SUITE/ >/dev/null 2>&1; then
+			JAVA_INSTALL_AVAILABLE=true
+			echo "Adding Adoptium APT repository and installing Adoptium Temurin Java LTS versions..."
+			if { [[ "$BASE_ID" == "ubuntu" ]] && version_ge "$BASE_VERSION_ID" "22.04"; } || { [[ "$BASE_ID" == "debian" ]] && version_ge "$BASE_VERSION_ID" "12"; }; then
+				printf "Types: deb\nURIs: https://packages.adoptium.net/artifactory/deb\nSuites: %s\nComponents: main\nSigned-By: /etc/apt/keyrings/adoptium.gpg\n" "$BASE_SUITE" | tee /etc/apt/sources.list.d/adoptium.sources >/dev/null
+			else
+				echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $BASE_SUITE main" \
+				| tee /etc/apt/sources.list.d/adoptium.list > /dev/null
+			fi
+			{
+				install -d -m 0755 /usr/share/keyrings
+				wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /usr/share/keyrings/adoptium.gpg
+				$PM_COMMAND update
+			} &>> "$LOG_FILE"
 		fi
-
-		# Check if the version contains a dot
-		if [[ $VERSION_ID == *.* ]]; then
-		  # Extract the major part of the version before the dot
-		  VERSION_ID=${VERSION_ID%%.*}
-		fi
-
-		if [[ ! "$ID" =~ ^(amazonlinux|centos|fedora|opensuse|oraclelinux|rhel|rocky|sles)$ ]]; then
-			echo "The distribution $ID is not supported by Adoptium. Please install Java manually."
-			return
-		fi
-
-		echo Adding Adoptium RPM repository...
-		
-		BASEURL=https://packages.adoptium.net/artifactory/rpm/$ID/$VERSION_ID/$(arch)
-
-		if wget --spider "$BASEURL" >/dev/null 2>&1; then
-			cat <<EOF > /etc/yum.repos.d/adoptium.repo
+	elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|opensuse|oraclelinux|rhel|rocky|sles|almalinux|fedora-asahi-linux)$ ]]; then
+		REPO_ID=$([[ "$ID" =~ ^(almalinux|fedora-asahi-linux)$ ]] && echo "$BASE_ID" || echo "$ID")
+		if wget -q --spider https://packages.adoptium.net/ui/native/rpm/$REPO_ID/${VERSION_ID%%.*}/$ARCH/ >/dev/null 2>&1; then
+			JAVA_INSTALL_AVAILABLE=true
+			echo "Adding Adoptium RPM repository and installing Adoptium Temurin Java LTS versions..."
+			{
+  				cat <<EOF
 [Adoptium]
 name=Adoptium
-baseurl=$BASEURL
+baseurl=https://packages.adoptium.net/artifactory/rpm/$REPO_ID/${VERSION_ID%%.*}/$ARCH
 enabled=1
 gpgcheck=1
 gpgkey=https://packages.adoptium.net/artifactory/api/gpg/key/public
 EOF
-			yum check-update &>> "$LOG_FILE"
-		else
-			echo "Java could not be installed automatically for your distribution. Please install it manually after setup completes."
-			echo
-			read -n 1 -s -r -p "Press enter to continue."
+			} > /etc/yum.repos.d/adoptium.repo 2>>"$LOG_FILE"
 		fi
-	fi
+	elif [[ "$BASE_ID" =~ "arch" ]]; then
+		JAVA_INSTALL_AVAILABLE=true
+		echo "Installing OpenJDK LTS versions from your system repositories..."
+    fi
 
-	echo "Installing Java for Minecraft..."
-# shellcheck disable=SC2086
-	$PM_COMMAND "${PM_INSTALL[@]}" $JAVA_PACKAGE &>> "$LOG_FILE"
+	if ! $JAVA_INSTALL_AVAILABLE; then
+		echo "Automatic Java installation is not supported on your system at this time. Please investigate installing the required Java versions manually after setup completes."
+		echo "Continuing without installing Java..."
+		return
+	else
+			# shellcheck disable=SC2086
+			$PM_COMMAND "${PM_INSTALL[@]}" $JAVA_PACKAGES &>> "$LOG_FILE"
+	fi
 }
 
-function installDocker {
-	if [ "$DOCKER_IS_INSTALLED" ]; then
-		echo "Docker already installed. Skipping..."
+function installPodman {
+	if [ "$PODMAN_IS_INSTALLED" ] && [ "$UIDMAP_IS_INSTALLED" ]; then
+		echo "Podman already installed. Skipping..."
 		{
-			usermod -a -G docker $AMP_SYS_USER
-			systemctl enable docker
-			systemctl start docker
+			loginctl enable-linger amp
 		} &>> "$LOG_FILE"
 		return
 	fi
 
 	if [ "$ARCH" != "x86_64" ]; then
-		echo "AMP's docker mode is only supported on x86_64 systems. You are running $ARCH"
+		echo "AMP's Podman mode is only supported on x86_64 systems. You are running $ARCH"
 		exit 64
 	fi
 
-	echo "Installing Docker..."
-
-	if [ "$APT_IS_PRESENT" ]; then
-		wget -qO- "https://download.docker.com/linux/$ID/gpg" | gpg --dearmor > /usr/share/keyrings/download.docker.com.gpg
-		echo "deb [signed-by=/usr/share/keyrings/download.docker.com.gpg arch=$(dpkg --print-architecture)] https://download.docker.com/linux/$ID $VERSION_CODENAME stable" > /etc/apt/sources.list.d/download.docker.com.list
-		apt-get update &>> "$LOG_FILE"
-	elif [ "$YUM_IS_PRESENT" ]; then
-		wget -P /etc/yum.repos.d https://download.docker.com/linux/centos/docker-ce.repo &>> "$LOG_FILE"
-		yum check-update &>> "$LOG_FILE"
-	fi
-
+	echo "Installing Podman..."
 	{
-		$PM_COMMAND "${PM_INSTALL[@]}" docker-ce docker-ce-cli containerd.io
-		systemctl enable docker
-		systemctl start docker
-		usermod -a -G docker $AMP_SYS_USER
+		$PM_COMMAND "${PM_INSTALL[@]}" $PODMAN_PACKAGES
+		loginctl enable-linger amp
 	} &>> "$LOG_FILE"
 }
 
-function installSrcdsDeps {
-	echo "Installing 32-bit dependencies for srcds..."
+function install32BitDeps {
+	echo "Installing 32-bit libraries for SteamCMD applications..."
 	if [ "$APT_IS_PRESENT" ]; then
 		dpkg --add-architecture i386 &>> "$LOG_FILE"
 		apt-get update &>> "$LOG_FILE"
@@ -742,6 +831,10 @@ function installSrcdsDeps {
 
 # shellcheck disable=SC2086
 	$PM_COMMAND "${PM_INSTALL[@]}" $LIB32_PACKAGES &>> "$LOG_FILE"
+}
+
+function installSrcdsDeps {
+	install32BitDeps
 }
 
 function installNginx {
@@ -784,19 +877,17 @@ function installDependencies {
 
 	JQ_IS_PRESENT="$(isPresent jq)"
 
-	if [[ "$installDocker" =~ ^[Yy]$ ]]; then
-		installDocker
+	if [[ "$installPodman" =~ ^[Yy]$ ]]; then
+		installPodman
 		PROVISIONFLAGS="$PROVISIONFLAGS +ADSModule.Defaults.UseDocker True"
-		installJava=n
-		installsrcdsLibs=n
 	fi
 
 	if [[ "$installJava" =~ ^[Yy]$ ]]; then
 		installJava
 	fi
 
-	if [[ "$installsrcdsLibs" =~ ^[Yy]$ ]]; then
-		installSrcdsDeps
+	if [[ "$install32BitLibs" =~ ^[Yy]$ ]]; then
+		install32BitDeps
 	fi
 
 	if [[ "$installDarkMagic" =~ ^[Yy]$ ]]; then
@@ -827,7 +918,7 @@ function checkConfig {
 				echo "The specified domain $nginxdomain resolves to '$domainip' but your external IP is '$EXTERNAL_IP'."
 				echo "If you've recently changed the IP address this domain resolves to"
 			fi
-			echo "you may need to empty your DNS cache or wait for DNS propogation to complete."
+			echo "you may need to empty your DNS cache or wait for DNS propagation to complete."
 			echo "Aborting setup. You can re-run this setup to try again."
 
 			exit 100
@@ -838,18 +929,47 @@ function checkConfig {
 } 
 
 function addRepo {
-	if [ "$APT_IS_PRESENT" ]; then
+	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
+
+	if [[ "$APT_IS_PRESENT" ]]; then
 		echo "Adding CubeCoders DEB repository..."
-		mkdir -p /usr/share/keyrings
-		echo "deb [signed-by=/usr/share/keyrings/cdn-repo.c7rs.com.gpg] https://cdn-repo.c7rs.com/$reposuffix debian/" > /etc/apt/sources.list.d/cdn-repo.c7rs.com.list
+		[[ -f /etc/apt/sources.list.d/repo.cubecoders.com.list ]] && rm -f /etc/apt/sources.list.d/repo.cubecoders.com.list >/dev/null 2>&1
+		if { [[ "$BASE_ID" == "ubuntu" ]] && version_ge "$BASE_VERSION_ID" "22.04"; } || { [[ "$BASE_ID" == "debian" ]] && version_ge "$BASE_VERSION_ID" "12"; }; then
+			[[ -f /etc/apt/sources.list.d/cdn-repo.c7rs.com.list ]] && rm -f /etc/apt/sources.list.d/cdn-repo.c7rs.com.list >/dev/null 2>&1
+			printf "Types: deb\nURIs: https://cdn-repo.c7rs.com/%s\nSuites: debian\nComponents: \nArchitectures: %s\nSigned-By: /usr/share/keyrings/cdn-repo.c7rs.com.gpg\n" "$reposuffix" "$(dpkg --print-architecture)" \
+			| tee /etc/apt/sources.list.d/cdn-repo.c7rs.com.sources > /dev/null
+		else
+			echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/cdn-repo.c7rs.com.gpg] https://cdn-repo.c7rs.com/$reposuffix debian/" \
+			| tee /etc/apt/sources.list.d/cdn-repo.c7rs.com.list > /dev/null
+		fi
 		{ 
-			wget -O /usr/share/keyrings/cdn-repo.c7rs.com.gpg https://cdn-repo.c7rs.com/archive.key;
-			apt-get update 
+			install -d -m 0755 /usr/share/keyrings
+			wget -O /usr/share/keyrings/cdn-repo.c7rs.com.gpg https://cdn-repo.c7rs.com/archive.key
+			$PM_COMMAND update 
 		} &>> "$LOG_FILE"
-	elif [ "$YUM_IS_PRESENT" ]; then
+	elif [[ "$YUM_IS_PRESENT" ]]; then
 		echo "Adding CubeCoders RPM repository..."
-		wget -P /etc/yum.repos.d "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo" &>> "$LOG_FILE"
-		yum check-update &>> "$LOG_FILE"
+		#{
+		#$PM_COMMAND "${PM_INSTALL[@]}" yum-utils
+		#yum-config-manager --add-repo "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo"
+		#} &>> "$LOG_FILE"
+		# Workaround for broken repo file on aarch64
+		$PM_COMMAND "${PM_INSTALL[@]}" yum-utils &>> "$LOG_FILE"
+		{
+			cat <<EOF
+[CubeCoders]
+name=CubeCoders Limited
+baseurl=https://cdn-repo.c7rs.com/${reposuffix}
+enabled=1
+gpgcheck=0
+EOF
+		} > ./CubeCoders.repo 2>>"$LOG_FILE"
+		yum-config-manager --add-repo ./CubeCoders.repo &>> "$LOG_FILE"
+		rm ./CubeCoders.repo > /dev/null
+    elif [ "$ZYPPER_IS_PRESENT" ]; then
+        echo "Adding CubeCoders repository for Zypper..."
+		wget -P /etc/zypp/repos.d "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo" &>> "$LOG_FILE"
+        zypper refresh &>> "$LOG_FILE"
 	fi
 }
 
@@ -994,6 +1114,11 @@ function update {
 		installAMP
 	fi
 
+    install -d -m 0700 -o $AMP_SYS_USER -g $AMP_SYS_USER "/run/user/$(id -u $AMP_SYS_USER)"
+    if ! grep -q "export XDG_RUNTIME_DIR=\"/run/user/$(id -u $AMP_SYS_USER)\"" "/home/$AMP_SYS_USER/.profile"; then
+        echo "export XDG_RUNTIME_DIR=\"/run/user/$(id -u $AMP_SYS_USER)\"" >> "/home/$AMP_SYS_USER/.profile"
+    fi
+
 	echo "Updating AMP instances..."
 	su -l $AMP_SYS_USER -c "ampinstmgr upgradeall"
 
@@ -1017,12 +1142,12 @@ function promptLogUpload {
 	echo "This will upload $LOG_FILE to the hastebin service and give you a URL you can share."
 	echo
 	prnt "The log file may contain sensitive information such as username, any supplied domain names or your systems hostname so if in doubt - check the file manually and upload it yourself."
-	read -n1 -rp "[y/N] " uploadlog
+	read -rp "[y/N] " uploadlog
 	uploadlog=${uploadlog:-n}
 
 	if [[ "$uploadlog" =~ ^[Yy]$ ]]; then
 		RESPONSE=$(curl -s -X POST -F "content=<${LOG_FILE}" https://dpaste.org/api/)
-		URL=$(echo $RESPONSE | grep -o 'https://dpaste.org/[a-zA-Z0-9]*')
+		URL=$(echo "$RESPONSE" | grep -o 'https://dpaste.org/[a-zA-Z0-9]*')
 		if [ -z "$url" ]; then
 			echo "Failed to upload log file. Please check $LOG_FILE manually."
 		else
@@ -1073,17 +1198,23 @@ function debian13upgrade {
 	fi
 }
 
+function rebootNow {
+	echo "Rebooting system now..."
+	sync;sync;sync
+	reboot
+}
+
 function uninstall_notyettested {
 	clear
 	echo "UNTESTED CODE - COULD CAUSE TOTAL SYSTEM DATA DESTRUCTION - BACKUP FIRST!"
 	echo
 	echo
-	echo "-- ${BoldText}PERMENENT DATA DESTRUCTION${NormalText} --"
+	echo "-- ${BoldText}PERMANENT DATA DESTRUCTION${NormalText} --"
 	echo
 	echo
-	prnt "Uninstalling AMP will permemently and irreversibly destroy all applications managed by AMP on this system with no way to restore that data."
+	prnt "Uninstalling AMP will permanently and irreversibly destroy all applications managed by AMP on this system, with no way to restore that data."
 	echo
-	echo "Some components such as Java, Docker and other 3rd party tools will not be removed"
+	echo "Some components such as Java, Podman and other 3rd party tools will not be removed."
 	echo
 	echo "Press CTRL+C to cancel."
 	echo
@@ -1177,12 +1308,12 @@ echo -en "Instance Manager:\t\t"| tee -a $INSTALL_SUMMARY
 if [ "$AMPINSTMGR_IS_INSTALLED" ]; then echo "Already installed"; else echo "To be installed"; fi| tee -a $INSTALL_SUMMARY
 echo -en "HTTPS setup:\t\t\t"| tee -a $INSTALL_SUMMARY
 if [[ "$setupnginx" =~ ^[Yy]$ ]]; then echo "Yes, via nginx with domain $nginxdomain"; else echo "No"; fi| tee -a $INSTALL_SUMMARY
-noReason=$( [[ "$installDocker" =~ ^[Yy]$ ]] && echo "Not Required (Using Docker)" || echo "No" )
+noReason=$( [[ "$installPodman" =~ ^[Yy]$ ]] && echo "Not required (replying on Podman)" || echo "No" )
+echo -en "Install Podman:\t\t\t" | tee -a $INSTALL_SUMMARY
+if [[ "$installPodman" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "No"; fi | tee -a $INSTALL_SUMMARY
 if [ "$ARCH" == "x86_64" ]; then
-	echo -en "Install Docker:\t\t\t" | tee -a $INSTALL_SUMMARY
-	if [[ "$installDocker" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "No"; fi | tee -a $INSTALL_SUMMARY
 	echo -en "Install 32-bit libraries:\t" | tee -a $INSTALL_SUMMARY
-	if [[ "$installsrcdsLibs" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "$noReason"; fi | tee -a $INSTALL_SUMMARY
+	if [[ "$install32BitLibs" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "$noReason"; fi | tee -a $INSTALL_SUMMARY
 fi
 echo -en "Install Java:\t\t\t"| tee -a $INSTALL_SUMMARY
 if [[ "$installJava" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "$noReason"; fi | tee -a $INSTALL_SUMMARY
