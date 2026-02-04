@@ -257,12 +257,6 @@ elif [ "$ZYPPER_IS_PRESENT" ]; then
     CERTBOT_PACKAGE=python3-certbot-nginx
     PM_LOCK_FILE="/var/run/zypp.pid"
     INSTALL_IN_PROGRESS=$(isFileOpen $PM_LOCK_FILE)
-
-    # openSUSE: require x86_64 or aarch64 similar policy
-    if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
-        echo "AMP is only supported on x86_64 and aarch64 systems. You are running $ARCH"
-        exit 64
-    fi
 else
 	echo "This system doesn't appear to be supported. No supported package manager (apt/yum/pacman) was found."
 	echo "Automated installation is only available for Debian, RHEL and Arch based distributions, including Ubuntu and CentOS."
