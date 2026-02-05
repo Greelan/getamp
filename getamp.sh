@@ -204,7 +204,7 @@ source /etc/os-release
 if [ "$APT_IS_PRESENT" ]; then
 	export DEBIAN_FRONTEND=noninteractive
 	PM_COMMAND=apt-get
-	PM_INSTALL=(install -y --no-remove --no-downgrades)
+	PM_INSTALL=(install -y)
 	PM_UNINSTALL=(remove -y)
 	CERTBOT_PACKAGE=python3-certbot-nginx
 	LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses5:i386 libbz2-1.0:i386 libtinfo5:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
