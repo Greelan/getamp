@@ -808,6 +808,14 @@ function installPodman {
 	{
 		$PM_COMMAND "${PM_INSTALL[@]}" $PODMAN_PACKAGES
 		loginctl enable-linger amp
+
+		TARGET="$HOME/.config/containers/registries.conf"
+		mkdir -p "$(dirname "$TARGET")"
+
+		cat > "$TARGET" << EOF
+unqualified-search-registries = ["docker.io"]
+short-name-mode = "permissive"
+EOF
 	} &>> "$LOG_FILE"
 }
 
