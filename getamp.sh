@@ -562,7 +562,7 @@ function promptForDeps {
 
 	echo "Will you be running Minecraft servers on this installation?"
 	echo "If selected, this installs the required versions of Java."
-    echo "If you selected to install Docker, and intend to run Minecraft servers only inside Docker containers, you do not need to select this option. It is however useful for flexibility."
+    echo "If you selected to install Podman, and intend to run Minecraft servers only inside Podman containers, you do not need to select this option. It is however useful for flexibility."
 	read -rp "[Y/n] " installJava
 	installJava=${installJava:-y}
 	echo
@@ -571,7 +571,7 @@ function promptForDeps {
 	if [ "$ARCH" == "x86_64" ]; then
 		echo "Will you be running applications that rely on SteamCMD (Rust, ARK, CS2, Palworld, etc) on this installation?"
 		echo "If selected, this will install the required additional 32-bit libraries."
-        echo "If you selected to install Docker, and intend to run such applications only inside Docker containers, you do not need to select this option. It is however useful for flexibility."
+        echo "If you selected to install Podman, and intend to run such applications only inside Podman containers, you do not need to select this option. It is however useful for flexibility."
 		read -rp "[Y/n] " install32BitLibs
 		install32BitLibs=${install32BitLibs:-y}
 		echo
