@@ -933,7 +933,7 @@ function addRepo {
 		[[ -f /etc/apt/sources.list.d/repo.cubecoders.com.list ]] && rm -f /etc/apt/sources.list.d/repo.cubecoders.com.list >/dev/null 2>&1
 		if { [[ "$BASE_ID" == "ubuntu" ]] && version_ge "$BASE_VERSION_ID" "22.04"; } || { [[ "$BASE_ID" == "debian" ]] && version_ge "$BASE_VERSION_ID" "12"; }; then
 			[[ -f /etc/apt/sources.list.d/cdn-repo.c7rs.com.list ]] && rm -f /etc/apt/sources.list.d/cdn-repo.c7rs.com.list >/dev/null 2>&1
-			printf "Types: deb\nURIs: https://cdn-repo.c7rs.com/%s\nSuites: debian\nComponents: \nArchitectures: %s\nSigned-By: /usr/share/keyrings/cdn-repo.c7rs.com.gpg\n" "$reposuffix" "$(dpkg --print-architecture)" \
+			printf "Types: deb\nURIs: https://cdn-repo.c7rs.com/%s\nSuites: debian\nComponents: main\nArchitectures: %s\nSigned-By: /usr/share/keyrings/cdn-repo.c7rs.com.gpg\n" "$reposuffix" "$(dpkg --print-architecture)" \
 			| tee /etc/apt/sources.list.d/cdn-repo.c7rs.com.sources > /dev/null
 		else
 			echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/cdn-repo.c7rs.com.gpg] https://cdn-repo.c7rs.com/$reposuffix debian/" \
