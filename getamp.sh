@@ -726,7 +726,7 @@ function installJava {
 			JAVA_INSTALL_AVAILABLE=true
 			echo "Adding Adoptium APT repository and installing Adoptium Temurin Java LTS versions..."
 			if { [[ "$BASE_ID" == "ubuntu" ]] && version_ge "$BASE_VERSION_ID" "22.04"; } || { [[ "$BASE_ID" == "debian" ]] && version_ge "$BASE_VERSION_ID" "12"; }; then
-				printf "Types: deb\nURIs: https://packages.adoptium.net/artifactory/deb\nSuites: %s\nComponents: main\nSigned-By: /etc/apt/keyrings/adoptium.gpg\n" "$BASE_SUITE" | tee /etc/apt/sources.list.d/adoptium.sources >/dev/null
+				printf "Types: deb\nURIs: https://packages.adoptium.net/artifactory/deb\nSuites: %s\nComponents: main\nSigned-By: /usr/share/keyrings/adoptium.gpg\n" "$BASE_SUITE" | tee /etc/apt/sources.list.d/adoptium.sources >/dev/null
 			else
 				echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $BASE_SUITE main" \
 				| tee /etc/apt/sources.list.d/adoptium.list > /dev/null
