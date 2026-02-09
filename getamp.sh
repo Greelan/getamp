@@ -839,7 +839,7 @@ function installPodman {
 		$PM_COMMAND "${PM_INSTALL[@]}" $PODMAN_PACKAGES
 		loginctl enable-linger amp
 
-		TARGET="$HOME/.config/containers/registries.conf"
+		TARGET="/home/amp/.config/containers/registries.conf"
 		mkdir -p "$(dirname "$TARGET")"
 
 		cat > "$TARGET" << EOF
