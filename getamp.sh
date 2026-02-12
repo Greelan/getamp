@@ -646,7 +646,7 @@ function createUser {
 		exit 11
 	fi
 	echo "$AMP_SYS_USER:$syspass" | chpasswd
-    install -d -m 0700 -o $AMP_SYS_USER -g $AMP_SYS_USER "/run/user/$(id -u $AMP_SYS_USER)"
+    loginctl enable-linger $AMP_SYS_USER
 	{
 		echo "export TERM=xterm"
 		# shellcheck disable=2028
@@ -1163,7 +1163,7 @@ function update {
 		installAMP
 	fi
 
-    install -d -m 0700 -o $AMP_SYS_USER -g $AMP_SYS_USER "/run/user/$(id -u $AMP_SYS_USER)"
+    loginctl enable-linger $AMP_SYS_USER
     if ! grep -q "export XDG_RUNTIME_DIR=\"/run/user/$(id -u $AMP_SYS_USER)\"" "/home/$AMP_SYS_USER/.profile"; then
         echo "export XDG_RUNTIME_DIR=\"/run/user/$(id -u $AMP_SYS_USER)\"" >> "/home/$AMP_SYS_USER/.profile"
     fi
