@@ -1142,7 +1142,7 @@ function addFirewallRule {
 		none) echo "No firewall installed, please add port $1 manually to your inbound firewall" ;;
 		ufw) ufw allow from any to any port "$1" proto tcp comment "$2" ;;
 		firewalld) firewall-cmd "--add-port=$1/tcp" --permanent && firewall-cmd --reload ;;
-		iptables) iptables -A INPUT -p tcp -m tcp --dport "$1" -j ACCEPT -m comment --comment "$2" && iptables-save > /etc/iptables/rules.v4 ;;
+		iptables) iptables -A INPUT -p tcp -m tcp --dport "$1" -j ACCEPT -m comment --comment "$2" && mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4 ;;
 		nft) nft add rule filter input tcp dport "$1" accept comment "\"$2\"" ;;
 		*) echo "Unsupported Firewall!" ;;
 	esac
