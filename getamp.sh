@@ -128,7 +128,6 @@ IP_IS_PRESENT="$(isPresent ip)"
 #SNAP_IS_PRESENT="$(isPresent snap)"
 STATUS_FILE=/opt/cubecoders/amp/shared/WebRoot/installState.json
 JAVA_PACKAGES="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk temurin-25-jdk"
-PODMAN_PACKAGES="podman uidmap"
 
 echo " - Checking environment..."
 if [[ $EUID -ne 0 ]]; then
@@ -836,7 +835,14 @@ function installPodman {
 
 	echo "Installing Podman..."
 	{
-		$PM_COMMAND "${PM_INSTALL[@]}" $PODMAN_PACKAGES
+		if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]]; then
+			$PM_COMMAND "${PM_INSTALL[@]}" podman uidmap
+		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-linux)$ ]]; then
+			$PM_COMMAND "${PM_INSTALL[@]}" podman shadow-utils
+		elif [[ "$ID" =~ ^(opensuse|sles)$ ]]; then
+			$PM_COMMAND "${PM_INSTALL[@]}" podman shadow
+		fi
+	
 		loginctl enable-linger amp
 
 		TARGET="/home/amp/.config/containers/registries.conf"
