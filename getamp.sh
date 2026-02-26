@@ -118,6 +118,8 @@ TPUT_IS_PRESENT="$(isPresent tput)"
 SELINUX_IS_INSTALLED="$(isPresent setsebool)"
 PODMAN_IS_INSTALLED="$(isPresent podman)"
 UIDMAP_IS_INSTALLED="$(isPresent newuidmap)"
+SHADOW_IS_INSTALLED="$(isPresent shadow)"
+SHADOW_UTILS_IS_INSTALLED="$(isPresent shadow-utils)"
 DOCKER_IS_INSTALLED="$(isPresent docker)"
 APT_IS_PRESENT="$(isPresent apt-get)"
 YUM_IS_PRESENT="$(isPresent yum)"
@@ -843,7 +845,17 @@ EOF
 }
 
 function installPodman {
-	if [ "$PODMAN_IS_INSTALLED" ] && [ "$UIDMAP_IS_INSTALLED" ]; then
+	installNeeded=y
+	if [ "$PODMAN_IS_INSTALLED" ] then
+		if [ "$BASE_ID" =~ ^(ubuntu|debian)$ ] && [ "$UIDMAP_IS_INSTALLED" ] ; then
+			installNeeded=n
+		elif [ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-linux)$ ] && [ "$SHADOW_UTILS_IS_INSTALLED" ]; then
+			installNeeded=n
+		elif [ "$ID" =~ ^(opensuse|sles)$ ] && [ "$SHADOW_IS_INSTALLED" ]; then
+			installNeeded=n
+		fi
+	fi
+	if [ "$installNeeded" == "n" ] then
 		echo "Podman already installed. Skipping..."
 		{
 			loginctl enable-linger amp
