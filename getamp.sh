@@ -816,12 +816,32 @@ function installJava {
 			} &>> "$LOG_FILE"
 		fi
 	elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|opensuse|oraclelinux|rhel|rocky|sles|almalinux|fedora-asahi-linux)$ ]]; then
-		REPO_ID=$([[ "$ID" =~ ^(almalinux|fedora-asahi-linux)$ ]] && echo "$BASE_ID" || echo "$ID")
-		if wget -q --spider https://packages.adoptium.net/ui/native/rpm/$REPO_ID/${VERSION_ID%%.*}/$ARCH/ >/dev/null 2>&1; then
+		case "$ID" in
+			rocky|almalinux|centos|oraclelinux|rhel)
+				REPO_ID="rhel"
+				;;
+			amazonlinux)
+				REPO_ID="amazonlinux"
+				;;
+			fedora|fedora-asahi-linux)
+				REPO_ID="fedora"
+				;;
+			opensuse)
+				REPO_ID="opensuse"
+				;;
+			sles)
+				REPO_ID="sles"
+				;;
+		esac
+
+		if wget -q --spider \
+			"https://packages.adoptium.net/ui/native/rpm/$REPO_ID/${VERSION_ID%%.*}/$ARCH/" \
+			>/dev/null 2>&1; then
+	
 			JAVA_INSTALL_AVAILABLE=true
 			echo "Adding Adoptium RPM repository and installing Adoptium Temurin Java LTS versions..."
-			{
-  				cat <<EOF
+	
+			cat > /etc/yum.repos.d/adoptium.repo <<EOF
 [Adoptium]
 name=Adoptium
 baseurl=https://packages.adoptium.net/artifactory/rpm/$REPO_ID/${VERSION_ID%%.*}/$ARCH
@@ -829,7 +849,6 @@ enabled=1
 gpgcheck=1
 gpgkey=https://packages.adoptium.net/artifactory/api/gpg/key/public
 EOF
-			} > /etc/yum.repos.d/adoptium.repo 2>>"$LOG_FILE"
 		fi
 	elif [[ "$BASE_ID" =~ "arch" ]]; then
 		JAVA_INSTALL_AVAILABLE=true
