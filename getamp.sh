@@ -857,7 +857,7 @@ function installPodman {
 			installNeeded=n
 		fi
 	fi
-	if [[ "$installNeeded" == "n" ]] then
+	if [[ "$installNeeded" == "n" ]]; then
 		echo "Podman already installed. Skipping..."
 		{
 			loginctl enable-linger amp
