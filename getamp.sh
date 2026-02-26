@@ -815,8 +815,8 @@ function installJava {
 				$PM_COMMAND update
 			} &>> "$LOG_FILE"
 		fi
-	elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|opensuse|oraclelinux|rhel|rocky|sles|almalinux|fedora-asahi-linux)$ ]]; then
-		case "$ID" in
+	elif [[ "$BASE_ID" =~ ^(amazonlinux|centos|fedora|opensuse|oraclelinux|rhel|rocky|sles|almalinux|fedora-asahi-linux)$ ]]; then
+		case "$BASE_ID" in
 			rocky|almalinux|centos|oraclelinux|rhel)
 				REPO_ID="rhel"
 				;;
@@ -868,7 +868,7 @@ EOF
 function installPodman {
 	installNeeded=y
 	if [[ "$PODMAN_IS_INSTALLED" ]]; then
-		if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]] && [[ "$UIDMAP_IS_INSTALLED" ]]; then
+		if [[ "$ID" =~ ^(ubuntu|debian)$ ]] && [[ "$UIDMAP_IS_INSTALLED" ]]; then
 			installNeeded=n
 		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-linux)$ ]] && [[ "$SHADOW_UTILS_IS_INSTALLED" ]]; then
 			installNeeded=n
@@ -895,7 +895,7 @@ function installPodman {
 
 	echo "Installing Podman..."
 	{
-		if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]]; then
+		if [[ "$ID" =~ ^(ubuntu|debian)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman uidmap
 		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-linux)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman shadow-utils
