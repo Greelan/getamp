@@ -569,24 +569,26 @@ function promptForDeps {
 		return
 	fi
 
+	echo "AMP can run inside containers to isolate it from your host system."
+	prnt "Running inside containers adds an extra layer of protection, especially if untrusted users will access AMP."
+	prnt "It also reduces the need to install extra dependencies on your host system."
+	prnt "If you are using a Desktop environment / GUI on this system, you should use this option to avoid package conflicts."
+	prnt "AMP is designed to work with Podman or Docker for containerisation."
+	echo
 	if [ "$PODMAN_CHECK" != 1 ]; then
-		echo "Would you like to isolate your AMP instances by running them inside Docker containers?"
-		prnt "This provides an additional layer of protection. It is strongly recommended if you are going to allow untrusted users access to AMP."
-		prnt "Using Docker is also strongly recommended for running some applications, as it removes the requirement to install additional dependencies on the host."
-		echo
 		prnt "You are attempting to install AMP within an unprivileged container. It is strongly recommended that you run AMP within a proper VM when able."
-		prnt "AMP is unable to install rootless Podman in this environment due to security restraints in the OS. Docker will be installed in place of Podman."
-		prnt "While running Docker does provide additional security versus native, running Docker as root still poses security risks."
+		prnt "Your system requires Docker for running containers. Podman is not supported in this environment due to security restraints in the OS."
+		prnt "While running Docker does provide additional security versus natively, running Docker as root still poses some security risks."
+		case "$ID" in
+			ubuntu|debian|rhel|centos|fedora) ;;
+			*) prnt "Note: Your distribution does not have a specific Docker repository. If this option is selected an attempt will be made to install Docker from the appropriate upstream repository." ;;
+		esac
 		read -rp "[y/N] " installDocker
 		installDocker=${installDocker:-n}
 		echo
 		echo
 	else
-		echo "Would you like to isolate your AMP instances by running them inside Podman containers?"
-		prnt "This provides an additional layer of protection at the expense of a minor performance impact. It is strongly recommended if you are going to allow untrusted users access to AMP."
-		echo
-		prnt "Using Podman is also strongly recommended for running some applications, as it removes the requirement to install additional dependencies on the host."
-		prnt "If you are using a Desktop environment / GUI on this system, you should use this option to avoid package conflicts."
+		prnt "Your system supports Podman for running containers. This runs in userspace (non-root) and is much more secure than running natively."
 		read -rp "[y/N] " installPodman
 		installPodman=${installPodman:-n}
 		echo
@@ -596,7 +598,7 @@ function promptForDeps {
 
 	echo "Will you be running Minecraft servers on this installation?"
 	echo "If selected, this installs the required versions of Java."
-    echo "If you selected to install Podman, and intend to run Minecraft servers only inside Podman containers, you do not need to select this option. It is however useful for flexibility."
+    echo "If you selected to run instances inside containers and intend to run Minecraft servers only inside containers, you do not need to select this option. It is however useful for flexibility."
 	read -rp "[Y/n] " installJava
 	installJava=${installJava:-y}
 	echo
@@ -606,7 +608,7 @@ function promptForDeps {
 		echo "Will you be running applications that rely on SteamCMD (Rust, ARK, CS2, Palworld, etc) on this installation?"
 		if [ "$HAS_NATIVE_32BIT" == "1" ]; then
 			echo "If selected, this will install the required additional 32-bit libraries."
-       		echo "If you selected to install Podman, and intend to run such applications only inside Podman containers, you do not need to select this option. It is however useful for flexibility."
+       		echo "If you selected to run instances inside containers and intend to run such applications only inside containers, you do not need to select this option. It is however useful for flexibility."
 			read -rp "[Y/n] " install32BitLibs
 			install32BitLibs=${install32BitLibs:-y}
 		else
@@ -1397,7 +1399,7 @@ function uninstall_notyettested {
 	echo
 	prnt "Uninstalling AMP will permanently and irreversibly destroy all applications managed by AMP on this system, with no way to restore that data."
 	echo
-	echo "Some components such as Java, Podman and other 3rd party tools will not be removed."
+	echo "Some components such as Java, Podman, Docker, and other 3rd party tools will not be removed."
 	echo
 	echo "Press CTRL+C to cancel."
 	echo
