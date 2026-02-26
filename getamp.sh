@@ -351,7 +351,7 @@ if [ "$ARCH" == "aarch64" ]; then
 	read -n 1 -s -r -p "Press enter to continue."
 fi
 
-if [ "$(mount | grep -icE '^tmpfs\s+\/tmp\s+.*?noexec.+$')" -gt 0 ]; then
+if [ "$(mount | grep -icE '^tmpfs\s+/tmp\s+.*?noexec.+$')" -gt 0 ]; then
 	echo "Your /tmp filesystem has the 'noexec' flag set. Please edit your /etc/fstab file to not have the noexec flag on /tmp"
 	echo "You will need to reboot your system after making this change"
 	exit 120
@@ -848,16 +848,16 @@ EOF
 
 function installPodman {
 	installNeeded=y
-	if [ "$PODMAN_IS_INSTALLED" ] then
-		if [ "$BASE_ID" =~ ^(ubuntu|debian)$ ] && [ "$UIDMAP_IS_INSTALLED" ] ; then
+	if [[ "$PODMAN_IS_INSTALLED" ]]; then
+		if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]] && [[ "$UIDMAP_IS_INSTALLED" ]]; then
 			installNeeded=n
-		elif [ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-linux)$ ] && [ "$SHADOW_UTILS_IS_INSTALLED" ]; then
+		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-linux)$ ]] && [[ "$SHADOW_UTILS_IS_INSTALLED" ]]; then
 			installNeeded=n
-		elif [ "$ID" =~ ^(opensuse|sles)$ ] && [ "$SHADOW_IS_INSTALLED" ]; then
+		elif [[ "$ID" =~ ^(opensuse|sles)$ ]] && [[ "$SHADOW_IS_INSTALLED" ]]; then
 			installNeeded=n
 		fi
 	fi
-	if [ "$installNeeded" == "n" ] then
+	if [[ "$installNeeded" == "n" ]] then
 		echo "Podman already installed. Skipping..."
 		{
 			loginctl enable-linger amp
@@ -865,7 +865,7 @@ function installPodman {
 		return
 	fi
 	
-	if [ "$PODMAN_CHECK" != 1 ]; then
+	if [[ "$PODMAN_CHECK" != 1 ]]; then
 		prnt "You are attempting to install AMP within an unprivileged container. It is strongly recommended that you run AMP within a proper VM when able."
 		prnt "AMP is unable to install rootless Podman in this environment due to security restraints in the OS. You can install Docker using the \"installDocker\" flag."
 		prnt "While running Docker does provide additional security versus native, running Docker as root still poses security risks."
