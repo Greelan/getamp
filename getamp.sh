@@ -128,6 +128,8 @@ IP_IS_PRESENT="$(isPresent ip)"
 #SNAP_IS_PRESENT="$(isPresent snap)"
 STATUS_FILE=/opt/cubecoders/amp/shared/WebRoot/installState.json
 JAVA_PACKAGES="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk temurin-25-jdk"
+HAS_NATIVE_32BIT=0
+PODMAN_CHECK=0
 
 echo " - Checking environment..."
 if [[ $EUID -ne 0 ]]; then
@@ -269,6 +271,11 @@ if [ "$ID" == "photon" ]; then
 	FORCE_CONTAINERS=1
 fi
 
+#Fix for systems that don't have 32-bit binary support (64-bit only)
+if [ -e /lib/ld-linux.so.2 ] || [ -e /lib32/ld-linux.so.2 ]; then
+    HAS_NATIVE_32BIT=1
+fi
+
 if [ "$INSTALL_IN_PROGRESS" ]; then
 	echo "Your package manager is currently performing another installation."
 	echo "Please wait for that to finish before installing AMP."
@@ -320,6 +327,11 @@ check_version "CentOS" "8"
 if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
 	echo "AMP is only supported on x86_64 and aarch64 systems. You are running $ARCH."
 	exit 64
+fi
+
+#Podman is required vs Docker due to running in unprivileged container
+if ! awk '$1=="0" && $2!="0"' /proc/self/uid_map | grep -q .; then
+	PODMAN_CHECK=1
 fi
 
 if [ "$ARCH" == "aarch64" ]; then
@@ -539,7 +551,7 @@ function promptForAMPUser {
 
 function promptForDeps {
 	if [ -n "$FORCE_CONTAINERS" ]; then
-		if awk '$1=="0" && $2!="0"' /proc/self/uid_map | grep -q .; then
+		if [ "$PODMAN_CHECK" != 1 ]; then
 			installDocker=y
 		else
 			installPodman=y
@@ -555,7 +567,7 @@ function promptForDeps {
 		return
 	fi
 
-	if awk '$1=="0" && $2!="0"' /proc/self/uid_map | grep -q .; then
+	if [ "$PODMAN_CHECK" != 1 ]; then
 		echo "Would you like to isolate your AMP instances by running them inside Docker containers?"
 		prnt "This provides an additional layer of protection. It is strongly recommended if you are going to allow untrusted users access to AMP."
 		prnt "Using Docker is also strongly recommended for running some applications, as it removes the requirement to install additional dependencies on the host."
@@ -590,10 +602,25 @@ function promptForDeps {
 
 	if [ "$ARCH" == "x86_64" ]; then
 		echo "Will you be running applications that rely on SteamCMD (Rust, ARK, CS2, Palworld, etc) on this installation?"
-		echo "If selected, this will install the required additional 32-bit libraries."
-        echo "If you selected to install Podman, and intend to run such applications only inside Podman containers, you do not need to select this option. It is however useful for flexibility."
-		read -rp "[Y/n] " install32BitLibs
-		install32BitLibs=${install32BitLibs:-y}
+		if [ "$HAS_NATIVE_32BIT" == "1" ]; then
+			echo "If selected, this will install the required additional 32-bit libraries."
+       		echo "If you selected to install Podman, and intend to run such applications only inside Podman containers, you do not need to select this option. It is however useful for flexibility."
+			read -rp "[Y/n] " install32BitLibs
+			install32BitLibs=${install32BitLibs:-y}
+		else
+			echo "This system does not support native 32-bit libraries. SteamCMD applications must be run inside containers."
+			echo "If selected, this will install the required container manager."
+			read -rp "[Y/n] " installContainerManager
+			installContainerManager=${installContainerManager:-y}
+			if [[ "$installContainerManager" =~ ^[Yy]$ ]]; then
+				install32BitLibs=n
+				if [ "$PODMAN_CHECK" != 1 ]; then
+					installDocker=y
+				else
+					installPodman=y
+				fi
+			fi
+		fi
 		echo
 		echo
 	fi
@@ -824,7 +851,7 @@ function installPodman {
 		return
 	fi
 	
-	if awk '$1=="0" && $2!="0"' /proc/self/uid_map | grep -q .; then
+	if [ "$PODMAN_CHECK" != 1 ]; then
 		prnt "You are attempting to install AMP within an unprivileged container. It is strongly recommended that you run AMP within a proper VM when able."
 		prnt "AMP is unable to install rootless Podman in this environment due to security restraints in the OS. You can install Docker using the \"installDocker\" flag."
 		prnt "While running Docker does provide additional security versus native, running Docker as root still poses security risks."
