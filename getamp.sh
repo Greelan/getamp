@@ -335,9 +335,11 @@ if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
 	exit 64
 fi
 
-#Podman is required vs Docker due to running in unprivileged container
-if ! awk '$1=="0" && $2!="0"' /proc/self/uid_map | grep -q .; then
-	PODMAN_CHECK=1
+# Use Podman if in a privileged container/VM and all distros and versions except Debian 12 and below and Ubuntu before 24.04 due to missing features in older Podman versions that are required for AMP to run properly. In these cases, Docker will be used instead.
+if awk '$1=="0" && $2!="0"' /proc/self/uid_map | grep -q .; then
+	if ! (([ "$ID" = 'debian' ] && ! version_ge "$VERSION_ID" "13") || ([ "$ID" = 'ubuntu' ] && ! version_ge "$VERSION_ID" "24.04")); then
+		PODMAN_CHECK=1
+	fi
 fi
 
 if [ "$ARCH" == "aarch64" ]; then
@@ -580,7 +582,8 @@ function promptForDeps {
 	prnt "AMP is designed to work with Podman or Docker for containerisation."
 	echo
 	if [ "$PODMAN_CHECK" != 1 ]; then
-		prnt "You are attempting to install AMP within an unprivileged container. It is strongly recommended that you run AMP within a proper VM when able."
+		prnt "You are attempting to install AMP within an unprivileged container or a distro that doesn't support the latest Podman features."
+		prnt "It is strongly recommended that you run AMP within a proper VM on the latest LTS distro when able."
 		prnt "Your system requires Docker for running containers. Podman is not supported in this environment due to security restraints in the OS."
 		prnt "While running Docker does provide additional security versus natively, running Docker as root still poses some security risks."
 		case "$ID" in
