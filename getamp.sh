@@ -1,5 +1,5 @@
 #!/bin/bash
-#CubeCoders AMP Installer (C) 2019-2025 CubeCoders Limited
+#CubeCoders AMP Installer (C) 2019-2026 CubeCoders Limited
 
 function isPresent { command -v "$1" &> /dev/null && echo 1; }
 function isFileOpen { lsof "$1" &> /dev/null && echo 1; }
@@ -336,10 +336,13 @@ if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
 fi
 
 # Use Podman if in a privileged container/VM and all distros and versions except Debian 12 and below and Ubuntu before 24.04 due to missing features in older Podman versions that are required for AMP to run properly. In these cases, Docker will be used instead.
-if awk '$1=="0" && $2!="0"' /proc/self/uid_map | grep -q .; then
-	if ! (([ "$ID" = 'debian' ] && ! version_ge "$VERSION_ID" "13") || ([ "$ID" = 'ubuntu' ] && ! version_ge "$VERSION_ID" "24.04")); then
-		PODMAN_CHECK=1
-	fi
+if awk '$1==0 && $2==0' /proc/self/uid_map | grep -q .; then
+	PODMAN_CHECK=1
+
+    if { [ "$ID" = "debian" ] && ! version_ge "$VERSION_ID" "13"; } ||
+       { [ "$ID" = "ubuntu" ] && ! version_ge "$VERSION_ID" "24.04"; }; then
+        PODMAN_CHECK=0
+    fi
 fi
 
 if [ "$ARCH" == "aarch64" ]; then
