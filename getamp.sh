@@ -130,7 +130,7 @@ IP_IS_PRESENT="$(isPresent ip)"
 #SNAP_IS_PRESENT="$(isPresent snap)"
 STATUS_FILE=/opt/cubecoders/amp/shared/WebRoot/installState.json
 JAVA_PACKAGES="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk temurin-25-jdk"
-HAS_NATIVE_32BIT=0
+HAS_NATIVE_32BIT=1
 PODMAN_CHECK=0
 
 echo " - Checking environment..."
@@ -274,9 +274,13 @@ if [ "$ID" == "photon" ]; then
 fi
 
 #Fix for systems that don't have 32-bit binary support (64-bit only)
-if [ -e /lib/ld-linux.so.2 ] || [ -e /lib32/ld-linux.so.2 ]; then
-    HAS_NATIVE_32BIT=1
-fi
+case "$ID" in
+    rhel|centos|rocky|almalinux)
+        if [[ ${VERSION_ID%%.*} -ge 10 ]]; then
+            HAS_NATIVE_32BIT=0
+        fi
+        ;;
+esac
 
 if [ "$INSTALL_IN_PROGRESS" ]; then
 	echo "Your package manager is currently performing another installation."
