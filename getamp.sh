@@ -737,8 +737,8 @@ function installJava {
 				$PM_COMMAND update
 			} &>> "$LOG_FILE"
 		fi
-	elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|opensuse|oraclelinux|rhel|rocky|sles|almalinux|fedora-asahi-linux)$ ]]; then
-		REPO_ID=$([[ "$ID" =~ ^(almalinux|fedora-asahi-linux)$ ]] && echo "$BASE_ID" || echo "$ID")
+	elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|opensuse|oraclelinux|rhel|rocky|sles|almalinux|fedora-asahi-remix)$ ]]; then
+		REPO_ID=$([[ "$ID" =~ ^(almalinux|fedora-asahi-remix)$ ]] && echo "$BASE_ID" || echo "$ID")
 		if wget -q --spider https://packages.adoptium.net/ui/native/rpm/$REPO_ID/${VERSION_ID%%.*}/$ARCH/ >/dev/null 2>&1; then
 			JAVA_INSTALL_AVAILABLE=true
 			echo "Adding Adoptium RPM repository and installing Adoptium Temurin Java LTS versions..."
