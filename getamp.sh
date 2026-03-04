@@ -870,6 +870,14 @@ function installPodman {
 		echo "Podman already installed. Skipping..."
 		{
 			loginctl enable-linger amp
+
+			TARGET="/home/amp/.config/containers/registries.conf"
+			mkdir -p "$(dirname "$TARGET")"
+
+			cat > "$TARGET" << EOF
+unqualified-search-registries = ["docker.io"]
+short-name-mode = "permissive"
+EOF
 		} &>> "$LOG_FILE"
 		return
 	fi
