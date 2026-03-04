@@ -1,5 +1,5 @@
 #!/bin/bash
-#CubeCoders AMP Installer (C) 2019-2025 CubeCoders Limited
+#CubeCoders AMP Installer (C) 2019-2026 CubeCoders Limited
 
 function isPresent { command -v "$1" &> /dev/null && echo 1; }
 function isFileOpen { lsof "$1" &> /dev/null && echo 1; }
@@ -10,6 +10,23 @@ function check_version { local distro; distro=$(echo "$1" | tr '[:upper:]' '[:lo
 function version_ge {
 	# Returns 0 (true) if $1 >= $2
 	[ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
+}
+
+function desktop_session_running()
+{
+  if command -v loginctl >/dev/null 2>&1; then
+    while read -r sid _; do
+      type="$(loginctl show-session "$sid" -p Type --value 2>/dev/null)"
+      remote="$(loginctl show-session "$sid" -p Remote --value 2>/dev/null)"
+      [ "$remote" = "no" ] && { [ "$type" = "x11" ] || [ "$type" = "wayland" ]; } && return 0
+    done < <(loginctl list-sessions --no-legend 2>/dev/null)
+  fi
+
+  [ -d /tmp/.X11-unix ] && ls /tmp/.X11-unix/X* >/dev/null 2>&1 && return 0
+  [ -d /run/user ] && find /run/user -maxdepth 2 -type s -name 'wayland-*' 2>/dev/null | grep -q . && return 0
+  command -v pgrep >/dev/null 2>&1 && pgrep -x Xorg Xwayland gnome-shell kwin_wayland weston sway >/dev/null 2>&1 && return 0
+
+  return 1
 }
 
 function mapUpstream {
@@ -80,7 +97,7 @@ echo "Please wait while GetAMP examines your system and network configuration...
 PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 ARCH=$(arch 2> /dev/null || uname -m)
 AMP_SYS_USER=amp
-GETAMP_VERSION="3.1.0"
+GETAMP_VERSION="3.3.0"
 
 if [ -z "$AMP_ADS_PORT" ]; then AMP_ADS_PORT="8080"; fi
 if [ -z "$AMP_ADS_IP" ]; then AMP_ADS_IP="0.0.0.0"; fi
@@ -99,15 +116,22 @@ DIG_IS_PRESENT="$(isPresent dig)"
 USERADD_IS_PRESENT="$(isPresent useradd)"
 TPUT_IS_PRESENT="$(isPresent tput)"
 SELINUX_IS_INSTALLED="$(isPresent setsebool)"
+PODMAN_IS_INSTALLED="$(isPresent podman)"
+UIDMAP_IS_INSTALLED="$(isPresent newuidmap)"
+SHADOW_IS_INSTALLED="$(isPresent shadow)"
+SHADOW_UTILS_IS_INSTALLED="$(isPresent shadow-utils)"
 DOCKER_IS_INSTALLED="$(isPresent docker)"
 APT_IS_PRESENT="$(isPresent apt-get)"
 YUM_IS_PRESENT="$(isPresent yum)"
 PACMAN_IS_PRESENT="$(isPresent pacman)"
+ZYPPER_IS_PRESENT="$(isPresent zypper)"
 JQ_IS_PRESENT="$(isPresent jq)"
 IP_IS_PRESENT="$(isPresent ip)"
 #SNAP_IS_PRESENT="$(isPresent snap)"
 STATUS_FILE=/opt/cubecoders/amp/shared/WebRoot/installState.json
 JAVA_PACKAGES="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk temurin-25-jdk"
+HAS_NATIVE_32BIT=1
+PODMAN_CHECK=0
 
 echo " - Checking environment..."
 if [[ $EUID -ne 0 ]]; then
@@ -228,6 +252,15 @@ elif [ "$PACMAN_IS_PRESENT" ]; then
 		echo "AMP only supports aarch64 on Debian and RHEL/CentOS based distros at this time."
 		exit
 	fi
+elif [ "$ZYPPER_IS_PRESENT" ]; then
+    PM_COMMAND=zypper
+    PM_INSTALL=(install -y --no-force-resolution)
+    PM_UNINSTALL=(remove -y)
+    LIB32_PACKAGES="glibc-32bit libstdc++6-32bit"
+    PREREQ_PACKAGES="wget tmux socat unzip git bind-utils tar jq qrencode libicu"
+    CERTBOT_PACKAGE=python3-certbot-nginx
+    PM_LOCK_FILE="/var/run/zypp.pid"
+    INSTALL_IN_PROGRESS=$(isFileOpen $PM_LOCK_FILE)
 else
 	echo "This system doesn't appear to be supported. No supported package manager (apt/yum/pacman) was found."
 	echo "Automated installation is only available for Debian, RHEL and Arch based distributions, including Ubuntu and CentOS."
@@ -237,8 +270,17 @@ fi
 
 if [ "$ID" == "photon" ]; then
 	PREREQ_PACKAGES="wget tmux socat unzip git bindutils tar jq sqlite-devel"
-	FORCE_DOCKER=1
+	FORCE_CONTAINERS=1
 fi
+
+#Fix for systems that don't have 32-bit binary support (64-bit only)
+case "$ID" in
+    rhel|centos|rocky|almalinux)
+        if [[ ${VERSION_ID%%.*} -ge 10 ]]; then
+            HAS_NATIVE_32BIT=0
+        fi
+        ;;
+esac
 
 if [ "$INSTALL_IN_PROGRESS" ]; then
 	echo "Your package manager is currently performing another installation."
@@ -293,6 +335,16 @@ if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
 	exit 64
 fi
 
+# Use Podman if in a privileged container/VM and all distros and versions except Debian 12 and below and Ubuntu before 24.04 due to missing features in older Podman versions that are required for AMP to run properly. In these cases, Docker will be used instead.
+if awk '$1==0 && $2==0' /proc/self/uid_map | grep -q .; then
+	PODMAN_CHECK=1
+
+    if { [ "$ID" = "debian" ] && ! version_ge "$VERSION_ID" "13"; } ||
+       { [ "$ID" = "ubuntu" ] && ! version_ge "$VERSION_ID" "24.04"; }; then
+        PODMAN_CHECK=0
+    fi
+fi
+
 if [ "$ARCH" == "aarch64" ]; then
 	reposuffix=$ARCH/
 	echo
@@ -308,7 +360,7 @@ if [ "$ARCH" == "aarch64" ]; then
 	read -n 1 -s -r -p "Press enter to continue."
 fi
 
-if [ "$(mount | grep -icE '^tmpfs\s+\/tmp\s+.*?noexec.+$')" -gt 0 ]; then
+if [ "$(mount | grep -icE '^tmpfs\s+/tmp\s+.*?noexec.+$')" -gt 0 ]; then
 	echo "Your /tmp filesystem has the 'noexec' flag set. Please edit your /etc/fstab file to not have the noexec flag on /tmp"
 	echo "You will need to reboot your system after making this change"
 	exit 120
@@ -355,7 +407,7 @@ else
 		echo
 		echo "GetAMP has detected that you are using Oracle Cloud."
 		echo
-		prnt "Extra steps are required to run AMP on Oracle Cloud, if you have not yet done this, ${BoldText}press CTRL+C now to stop the setup${NormalText} and consult the documentation at ${UnderlineText}$(urlLink "https://support.cubecoders.com/docs?topic=2307&utm_term=oracle")${NormalText} before continuing."
+		prnt "Extra steps are required to run AMP on Oracle Cloud, if you have not yet done this, ${BoldText}press CTRL+C now to stop the setup${NormalText} and consult the documentation at ${UnderlineText}$(urlLink "https://ccl.sh/2307")${NormalText} before continuing."
 		echo
 		prnt "Make sure you are using ${BoldText}Ubuntu 22.04 or newer${NormalText} as per the guide. Older versions are not supported on ARM hardware."
 		echo
@@ -401,6 +453,7 @@ function configureDarkMagicNew {
 		else
 			ARM_PACKAGES="libgcc-s1:armhf libstdc++6:armhf zlib1g:armhf libbz2-1.0:armhf libcurl4:armhf libcurl3-gnutls:armhf libncurses5:armhf libtinfo5:armhf libsdl2-2.0-0:armhf libssl3:armhf"
 		fi
+		# shellcheck disable=SC2086
 		$PM_COMMAND "${PM_INSTALL[@]}" $ARM_PACKAGES binfmt-support
 		
 		install -d -m 0755 /usr/share/keyrings
@@ -508,34 +561,54 @@ function promptForAMPUser {
 }
 
 function promptForDeps {
-	if [ -n "$FORCE_DOCKER" ]; then
-		installDocker=y
+	if [ -n "$FORCE_CONTAINERS" ]; then
+		if [ "$PODMAN_CHECK" != 1 ]; then
+			installDocker=y
+		else
+			installPodman=y
+		fi
 		return; 
 	fi
 
 	if [ -n "$USE_ANSWERS" ]; then
 		installJava=$ANSWER_INSTALLJAVA
 		install32BitLibs=${ANSWER_INSTALL32BITLIBS:-${ANSWER_INSTALLSRCDSLIBS:-}}
+		installPodman=$ANSWER_INSTALLPODMAN
 		installDocker=$ANSWER_INSTALLDOCKER
 		return
 	fi
 
-	echo "Would you like to isolate your AMP instances by running them inside Docker containers?"
-	prnt "This provides an additional layer of protection at the expense of a minor performance impact. It is strongly recommended if you are going to allow untrusted users access to AMP."
+	echo "AMP can run inside containers to isolate it from your host system."
+	prnt "Running inside containers adds an extra layer of protection, especially if untrusted users will access AMP."
+	prnt "It also reduces the need to install extra dependencies on your host system."
+	prnt "If you are using a Desktop environment / GUI on this system, you should use this option to avoid package conflicts."
+	prnt "AMP is designed to work with Podman or Docker for containerisation."
 	echo
-	prnt "Using Docker is also strongly recommended for running some applications, as it removes the requirement to install additional dependencies on the host."
-	case "$ID" in
-		ubuntu|debian|rhel|centos|fedora) ;;
-		*) prnt "Note that, given that your distribution does not have a specific Docker repository, if this option is selected an attempt will be made to install Docker from the appropriate upstream repository." ;;
-	esac
-	read -rp "[y/N] " installDocker
-	installDocker=${installDocker:-n}
-	echo
-	echo
+	if [ "$PODMAN_CHECK" != 1 ]; then
+		prnt "You are attempting to install AMP within an unprivileged container or a distro that doesn't support the latest Podman features."
+		prnt "It is strongly recommended that you run AMP within a proper VM on the latest LTS distro when able."
+		prnt "Your system requires Docker for running containers. Podman is not supported in this environment due to security restraints in the OS."
+		prnt "While running Docker does provide additional security versus natively, running Docker as root still poses some security risks."
+		case "$ID" in
+			ubuntu|debian|rhel|centos|fedora) ;;
+			*) prnt "Note: Your distribution does not have a specific Docker repository. If this option is selected an attempt will be made to install Docker from the appropriate upstream repository." ;;
+		esac
+		read -rp "[y/N] " installDocker
+		installDocker=${installDocker:-n}
+		echo
+		echo
+	else
+		prnt "Your system supports Podman for running containers. This runs in userspace (non-root) and is much more secure than running natively."
+		read -rp "[y/N] " installPodman
+		installPodman=${installPodman:-n}
+		echo
+		echo
+	fi
+
 
 	echo "Will you be running Minecraft servers on this installation?"
 	echo "If selected, this installs the required versions of Java."
-    echo "If you selected to install Docker, and intend to run Minecraft servers only inside Docker containers, you do not need to select this option. It is however useful for flexibility."
+    echo "If you selected to run instances inside containers and intend to run Minecraft servers only inside containers, you do not need to select this option. It is however useful for flexibility."
 	read -rp "[Y/n] " installJava
 	installJava=${installJava:-y}
 	echo
@@ -543,10 +616,25 @@ function promptForDeps {
 
 	if [ "$ARCH" == "x86_64" ]; then
 		echo "Will you be running applications that rely on SteamCMD (Rust, ARK, CS2, Palworld, etc) on this installation?"
-		echo "If selected, this will install the required additional 32-bit libraries."
-        echo "If you selected to install Docker, and intend to run such applications only inside Docker containers, you do not need to select this option. It is however useful for flexibility."
-		read -rp "[Y/n] " install32BitLibs
-		install32BitLibs=${install32BitLibs:-y}
+		if [ "$HAS_NATIVE_32BIT" == "1" ]; then
+			echo "If selected, this will install the required additional 32-bit libraries."
+       		echo "If you selected to run instances inside containers and intend to run such applications only inside containers, you do not need to select this option. It is however useful for flexibility."
+			read -rp "[Y/n] " install32BitLibs
+			install32BitLibs=${install32BitLibs:-y}
+		else
+			echo "This system does not support native 32-bit libraries. SteamCMD applications must be run inside containers."
+			echo "If selected, this will install the required container manager."
+			read -rp "[Y/n] " installContainerManager
+			installContainerManager=${installContainerManager:-y}
+			if [[ "$installContainerManager" =~ ^[Yy]$ ]]; then
+				install32BitLibs=n
+				if [ "$PODMAN_CHECK" != 1 ]; then
+					installDocker=y
+				else
+					installPodman=y
+				fi
+			fi
+		fi
 		echo
 		echo
 	fi
@@ -742,8 +830,8 @@ function installJava {
 		if wget -q --spider https://packages.adoptium.net/ui/native/rpm/$REPO_ID/${VERSION_ID%%.*}/$ARCH/ >/dev/null 2>&1; then
 			JAVA_INSTALL_AVAILABLE=true
 			echo "Adding Adoptium RPM repository and installing Adoptium Temurin Java LTS versions..."
-			{
-  				cat <<EOF
+	
+			cat > /etc/yum.repos.d/adoptium.repo <<EOF
 [Adoptium]
 name=Adoptium
 baseurl=https://packages.adoptium.net/artifactory/rpm/$REPO_ID/${VERSION_ID%%.*}/$ARCH
@@ -751,7 +839,6 @@ enabled=1
 gpgcheck=1
 gpgkey=https://packages.adoptium.net/artifactory/api/gpg/key/public
 EOF
-			} > /etc/yum.repos.d/adoptium.repo 2>>"$LOG_FILE"
 		fi
 	elif [[ "$BASE_ID" =~ "arch" ]]; then
 		JAVA_INSTALL_AVAILABLE=true
@@ -766,6 +853,56 @@ EOF
 			# shellcheck disable=SC2086
 			$PM_COMMAND "${PM_INSTALL[@]}" $JAVA_PACKAGES &>> "$LOG_FILE"
 	fi
+}
+
+function installPodman {
+	installNeeded=y
+	if [[ "$PODMAN_IS_INSTALLED" ]]; then
+		if [[ "$ID" =~ ^(ubuntu|debian)$ ]] && [[ "$UIDMAP_IS_INSTALLED" ]]; then
+			installNeeded=n
+		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]] && [[ "$SHADOW_UTILS_IS_INSTALLED" ]]; then
+			installNeeded=n
+		elif [[ "$ID" =~ ^(opensuse|sles)$ ]] && [[ "$SHADOW_IS_INSTALLED" ]]; then
+			installNeeded=n
+		fi
+	fi
+	if [[ "$installNeeded" == "n" ]]; then
+		echo "Podman already installed. Skipping..."
+		{
+			loginctl enable-linger amp
+		} &>> "$LOG_FILE"
+		return
+	fi
+	
+	if [[ "$PODMAN_CHECK" != 1 ]]; then
+		prnt "You are attempting to install AMP within an unprivileged container. It is strongly recommended that you run AMP within a proper VM when able."
+		prnt "AMP is unable to install rootless Podman in this environment due to security restraints in the OS. You can install Docker using the \"installDocker\" flag."
+		prnt "While running Docker does provide additional security versus native, running Docker as root still poses security risks."
+		echo
+		echo
+		return
+	fi
+
+	echo "Installing Podman..."
+	{
+		if [[ "$ID" =~ ^(ubuntu|debian)$ ]]; then
+			$PM_COMMAND "${PM_INSTALL[@]}" podman uidmap
+		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]]; then
+			$PM_COMMAND "${PM_INSTALL[@]}" podman shadow-utils
+		elif [[ "$ID" =~ ^(opensuse|sles)$ ]]; then
+			$PM_COMMAND "${PM_INSTALL[@]}" podman shadow
+		fi
+	
+		loginctl enable-linger amp
+
+		TARGET="/home/amp/.config/containers/registries.conf"
+		mkdir -p "$(dirname "$TARGET")"
+
+		cat > "$TARGET" << EOF
+unqualified-search-registries = ["docker.io"]
+short-name-mode = "permissive"
+EOF
+	} &>> "$LOG_FILE"
 }
 
 function installDocker {
@@ -790,7 +927,6 @@ function installDocker {
 	fi
 
 	echo "Installing Docker..."
-
 	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
 	DOCKER_REPO_AVAILABLE=false
 
@@ -930,6 +1066,11 @@ function installDependencies {
 
 	JQ_IS_PRESENT="$(isPresent jq)"
 
+	if [[ "$installPodman" =~ ^[Yy]$ ]]; then
+		installPodman
+		PROVISIONFLAGS="$PROVISIONFLAGS +ADSModule.Defaults.UseDocker True"
+	fi
+
 	if [[ "$installDocker" =~ ^[Yy]$ ]]; then
 		installDocker
 		PROVISIONFLAGS="$PROVISIONFLAGS +ADSModule.Defaults.UseDocker True"
@@ -1019,6 +1160,10 @@ EOF
 		} > ./CubeCoders.repo 2>>"$LOG_FILE"
 		yum-config-manager --add-repo ./CubeCoders.repo &>> "$LOG_FILE"
 		rm ./CubeCoders.repo > /dev/null
+    elif [ "$ZYPPER_IS_PRESENT" ]; then
+        echo "Adding CubeCoders repository for Zypper..."
+		wget -P /etc/zypp/repos.d "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo" &>> "$LOG_FILE"
+        zypper refresh &>> "$LOG_FILE"
 	fi
 }
 
@@ -1053,7 +1198,7 @@ function addFirewallRule {
 		none) echo "No firewall installed, please add port $1 manually to your inbound firewall" ;;
 		ufw) ufw allow from any to any port "$1" proto tcp comment "$2" ;;
 		firewalld) firewall-cmd "--add-port=$1/tcp" --permanent && firewall-cmd --reload ;;
-		iptables) iptables -A INPUT -p tcp -m tcp --dport "$1" -j ACCEPT -m comment --comment "$2" && iptables-save > /etc/iptables/rules.v4 ;;
+		iptables) iptables -A INPUT -p tcp -m tcp --dport "$1" -j ACCEPT -m comment --comment "$2" && mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4 ;;
 		nft) nft add rule filter input tcp dport "$1" accept comment "\"$2\"" ;;
 		*) echo "Unsupported Firewall!" ;;
 	esac
@@ -1196,7 +1341,7 @@ function promptLogUpload {
 
 	if [[ "$uploadlog" =~ ^[Yy]$ ]]; then
 		RESPONSE=$(curl -s -X POST -F "content=<${LOG_FILE}" https://dpaste.org/api/)
-		URL=$(echo $RESPONSE | grep -o 'https://dpaste.org/[a-zA-Z0-9]*')
+		URL=$(echo "$RESPONSE" | grep -o 'https://dpaste.org/[a-zA-Z0-9]*')
 		if [ -z "$url" ]; then
 			echo "Failed to upload log file. Please check $LOG_FILE manually."
 		else
@@ -1247,6 +1392,12 @@ function debian13upgrade {
 	fi
 }
 
+function rebootNow {
+	echo "Rebooting system now..."
+	sync;sync;sync
+	reboot
+}
+
 function uninstall_notyettested {
 	clear
 	echo "UNTESTED CODE - COULD CAUSE TOTAL SYSTEM DATA DESTRUCTION - BACKUP FIRST!"
@@ -1257,7 +1408,7 @@ function uninstall_notyettested {
 	echo
 	prnt "Uninstalling AMP will permanently and irreversibly destroy all applications managed by AMP on this system, with no way to restore that data."
 	echo
-	echo "Some components such as Java, Docker and other 3rd party tools will not be removed."
+	echo "Some components such as Java, Podman, Docker, and other 3rd party tools will not be removed."
 	echo
 	echo "Press CTRL+C to cancel."
 	echo
@@ -1351,9 +1502,10 @@ echo -en "Instance Manager:\t\t"| tee -a $INSTALL_SUMMARY
 if [ "$AMPINSTMGR_IS_INSTALLED" ]; then echo "Already installed"; else echo "To be installed"; fi| tee -a $INSTALL_SUMMARY
 echo -en "HTTPS setup:\t\t\t"| tee -a $INSTALL_SUMMARY
 if [[ "$setupnginx" =~ ^[Yy]$ ]]; then echo "Yes, via nginx with domain $nginxdomain"; else echo "No"; fi| tee -a $INSTALL_SUMMARY
-noReason=$( [[ "$installDocker" =~ ^[Yy]$ ]] && echo "Not required (replying on Docker)" || echo "No" )
-echo -en "Install Docker:\t\t\t" | tee -a $INSTALL_SUMMARY
-if [[ "$installDocker" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "No"; fi | tee -a $INSTALL_SUMMARY
+noReason=$(([[ "$installPodman" =~ ^[Yy]$ ]] || [[ "$installDocker" =~ ^[Yy]$ ]]) && echo "Not required (running in containers)" || echo "No" )
+if [[ "$installPodman" =~ ^[Yy]$ ]]; then echo -e "Install Podman:\t\t\tYes";
+elif [[ "$installDocker" =~ ^[Yy]$ ]]; then echo -e "Install Docker:\t\t\tYes";
+else echo -e "Install Podman/Docker:\t\tNo"; fi | tee -a $INSTALL_SUMMARY
 if [ "$ARCH" == "x86_64" ]; then
 	echo -en "Install 32-bit libraries:\t" | tee -a $INSTALL_SUMMARY
 	if [[ "$install32BitLibs" =~ ^[Yy]$ ]]; then echo "Yes"; else echo "$noReason"; fi | tee -a $INSTALL_SUMMARY
