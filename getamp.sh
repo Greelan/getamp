@@ -860,7 +860,7 @@ function installPodman {
 	if [[ "$PODMAN_IS_INSTALLED" ]]; then
 		if [[ "$ID" =~ ^(ubuntu|debian)$ ]] && [[ "$UIDMAP_IS_INSTALLED" ]]; then
 			installNeeded=n
-		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-linux)$ ]] && [[ "$SHADOW_UTILS_IS_INSTALLED" ]]; then
+		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]] && [[ "$SHADOW_UTILS_IS_INSTALLED" ]]; then
 			installNeeded=n
 		elif [[ "$ID" =~ ^(opensuse|sles)$ ]] && [[ "$SHADOW_IS_INSTALLED" ]]; then
 			installNeeded=n
@@ -887,7 +887,7 @@ function installPodman {
 	{
 		if [[ "$ID" =~ ^(ubuntu|debian)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman uidmap
-		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-linux)$ ]]; then
+		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman shadow-utils
 		elif [[ "$ID" =~ ^(opensuse|sles)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman shadow
