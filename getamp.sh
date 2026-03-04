@@ -1162,7 +1162,17 @@ EOF
 		rm ./CubeCoders.repo > /dev/null
     elif [ "$ZYPPER_IS_PRESENT" ]; then
         echo "Adding CubeCoders repository for Zypper..."
-		wget -P /etc/zypp/repos.d "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo" &>> "$LOG_FILE"
+		#wget -P /etc/zypp/repos.d "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo" &>> "$LOG_FILE"
+		# Workaround for broken repo file on aarch64
+		{
+			cat <<EOF
+[CubeCoders]
+name=CubeCoders Limited
+baseurl=https://cdn-repo.c7rs.com/${reposuffix}
+enabled=1
+gpgcheck=0
+EOF
+		} > /etc/zypp/repos.d/CubeCoders.repo 2>>"$LOG_FILE"
         zypper refresh &>> "$LOG_FILE"
 	fi
 }
