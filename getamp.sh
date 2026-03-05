@@ -870,7 +870,7 @@ function installPodman {
 		echo "Podman already installed. Skipping..."
 		{
 			loginctl enable-linger $AMP_SYS_USER
-			su - $AMP_SYS_USER -c 'podman system reset'
+			su - $AMP_SYS_USER -c 'podman system reset -f'
 
 			TARGET="/home/amp/.config/containers/registries.conf"
 			mkdir -p "$(dirname "$TARGET")"
