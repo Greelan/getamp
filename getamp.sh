@@ -869,7 +869,8 @@ function installPodman {
 	if [[ "$installNeeded" == "n" ]] && [[ "$PODMAN_CHECK" == 1 ]]; then
 		echo "Podman already installed. Skipping..."
 		{
-			loginctl enable-linger amp
+			loginctl enable-linger $AMP_SYS_USER
+			podman system reset
 
 			TARGET="/home/amp/.config/containers/registries.conf"
 			mkdir -p "$(dirname "$TARGET")"
@@ -898,6 +899,8 @@ EOF
 
 	echo "Installing Podman..."
 	{
+		loginctl enable-linger $AMP_SYS_USER
+
 		if [[ "$ID" =~ ^(ubuntu|debian)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman uidmap
 		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]]; then
@@ -905,8 +908,6 @@ EOF
 		elif [[ "$ID" =~ ^(opensuse|sles)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman shadow
 		fi
-	
-		loginctl enable-linger amp
 
 		TARGET="/home/amp/.config/containers/registries.conf"
 		mkdir -p "$(dirname "$TARGET")"
