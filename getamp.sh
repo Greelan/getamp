@@ -866,7 +866,7 @@ function installPodman {
 			installNeeded=n
 		fi
 	fi
-	if [[ "$installNeeded" == "n" ]]; then
+	if [[ "$installNeeded" == "n" ]] && [[ "$PODMAN_CHECK" == 1 ]]; then
 		echo "Podman already installed. Skipping..."
 		{
 			loginctl enable-linger amp
@@ -883,8 +883,13 @@ EOF
 	fi
 	
 	if [[ "$PODMAN_CHECK" != 1 ]]; then
-		prnt "You are attempting to install AMP within an unprivileged container. It is strongly recommended that you run AMP within a proper VM when able."
-		prnt "AMP is unable to install rootless Podman in this environment due to security restraints in the OS. You can install Docker using the \"installDocker\" flag."
+		if [[ "$installNeeded" == "n" ]]; then
+			prnt "Podman is already installed. However, you are attempting to install (or have already installed) AMP within an unprivileged container or a distro that doesn't support the latest Podman features. It is strongly recommended that you run AMP within a proper VM when able."
+			prnt "AMP is unable to run rootless Podman in this environment due to security restraints in the OS. You can instead install Docker using the \"installDocker\" flag. You will also need to manually remove Podman."
+		else
+			prnt "You are attempting to install (or have already installed) AMP within an unprivileged container or a distro that doesn't support the latest Podman features. It is strongly recommended that you run AMP within a proper VM when able."
+			prnt "AMP is unable to run rootless Podman in this environment due to security restraints in the OS. You can instead install Docker using the \"installDocker\" flag."
+		fi
 		prnt "While running Docker does provide additional security versus native, running Docker as root still poses security risks."
 		echo
 		echo
