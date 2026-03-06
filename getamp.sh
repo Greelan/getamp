@@ -599,6 +599,7 @@ function promptForDeps {
 		echo
 	else
 		prnt "Your system supports Podman for running containers. This runs in userspace (non-root) and is much more secure than running natively."
+		prnt "If Docker is currently being used by AMP to run containers, those containers will be stopped first before Podman is installed."
 		read -rp "[y/N] " installPodman
 		installPodman=${installPodman:-n}
 		echo
@@ -901,6 +902,10 @@ EOF
 	{
 		loginctl enable-linger $AMP_SYS_USER
 
+		if [[ "$DOCKER_IS_INSTALLED" ]]; then
+			docker ps -aq --filter "name=^AMP_" | xargs -r docker stop
+		fi
+
 		if [[ "$ID" =~ ^(ubuntu|debian)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman uidmap
 		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]]; then
@@ -1013,7 +1018,7 @@ function installDocker {
 	else
 		{
 			if [[ "$reInstallDocker" =~ ^[Yy]$ ]] && [[ -n "$REMOVE_DOCKER_PACKAGES" ]]; then
-				docker ps -q | xargs -r docker stop
+				docker ps -aq | xargs -r docker stop
 				systemctl stop docker
 				for pkg in $REMOVE_DOCKER_PACKAGES; do $PM_COMMAND "${PM_UNINSTALL[@]}" $pkg; done
 			fi
