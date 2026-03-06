@@ -873,13 +873,14 @@ function installPodman {
 			loginctl enable-linger $AMP_SYS_USER
 			su - $AMP_SYS_USER -c 'podman system reset -f'
 
-			TARGET="/home/amp/.config/containers/registries.conf"
+			TARGET="/home/$AMP_SYS_USER/.config/containers/registries.conf"
 			mkdir -p "$(dirname "$TARGET")"
 
 			cat > "$TARGET" << EOF
 unqualified-search-registries = ["docker.io"]
 short-name-mode = "permissive"
 EOF
+			chown $AMP_SYS_USER:$AMP_SYS_USER "$TARGET"
 		} &>> "$LOG_FILE"
 		return
 	fi
