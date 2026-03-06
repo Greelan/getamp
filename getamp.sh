@@ -903,7 +903,7 @@ EOF
 		loginctl enable-linger $AMP_SYS_USER
 
 		if [[ "$DOCKER_IS_INSTALLED" ]]; then
-			docker ps -aq --filter "name=^AMP_" | xargs -r docker stop
+			docker ps -q --filter "name=^AMP_" | xargs -r docker stop
 		fi
 
 		if [[ "$ID" =~ ^(ubuntu|debian)$ ]]; then
@@ -1018,7 +1018,7 @@ function installDocker {
 	else
 		{
 			if [[ "$reInstallDocker" =~ ^[Yy]$ ]] && [[ -n "$REMOVE_DOCKER_PACKAGES" ]]; then
-				docker ps -aq | xargs -r docker stop
+				docker ps -q | xargs -r docker stop
 				systemctl stop docker
 				for pkg in $REMOVE_DOCKER_PACKAGES; do $PM_COMMAND "${PM_UNINSTALL[@]}" $pkg; done
 			fi
