@@ -866,9 +866,9 @@ function installPodman {
 	if [[ "$PODMAN_IS_INSTALLED" ]] && [[ "$CRUN_IS_INSTALLED" ]]; then
 		if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]] && [[ "$UIDMAP_IS_INSTALLED" ]]; then
 			installNeeded=n
-		elif [[ "$BASE_ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]] && [[ "$SHADOW_UTILS_IS_INSTALLED" ]]; then
+		elif [[ "$BASE_ID" =~ ^(centos|fedora|rhel)$ ]] && [[ "$SHADOW_UTILS_IS_INSTALLED" ]]; then
 			installNeeded=n
-		elif [[ "$BASE_ID" =~ ^(opensuse|sles)$ ]] && [[ "$SHADOW_IS_INSTALLED" ]]; then
+		elif { [[ "$ID" =~ ^(opensuse|sles)$ || "$BASE_ID" =~ ^(arch)$ ]] } && [[ "$SHADOW_IS_INSTALLED" ]]; then
 			installNeeded=n
 		fi
 	fi
@@ -915,9 +915,9 @@ EOF
 
 		if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman crun uidmap
-		elif [[ "$BASE_ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]]; then
+		elif [[ "$BASE_ID" =~ ^(centos|fedora|rhel)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman crun shadow-utils
-		elif [[ "$BASE_ID" =~ ^(opensuse|sles)$ ]]; then
+		elif [[ "$ID" =~ ^(opensuse|sles)$ || "$BASE_ID" =~ ^(arch)$ ]]; then
 			$PM_COMMAND "${PM_INSTALL[@]}" podman crun shadow
 		else
 			prnt "Your distribution is not supported by getamp for automatic Podman installation. Please investigate installing Podman and its dependencies manually or run getamp installDocker to run instances using Docker."
