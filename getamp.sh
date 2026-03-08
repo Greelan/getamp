@@ -97,7 +97,7 @@ echo "Please wait while GetAMP examines your system and network configuration...
 PATH=$PATH:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 ARCH=$(arch 2> /dev/null || uname -m)
 AMP_SYS_USER=amp
-GETAMP_VERSION="3.3.0"
+GETAMP_VERSION="4.1.2"
 
 if [ -z "$AMP_ADS_PORT" ]; then AMP_ADS_PORT="8080"; fi
 if [ -z "$AMP_ADS_IP" ]; then AMP_ADS_IP="0.0.0.0"; fi
@@ -120,6 +120,7 @@ PODMAN_IS_INSTALLED="$(isPresent podman)"
 UIDMAP_IS_INSTALLED="$(isPresent newuidmap)"
 SHADOW_IS_INSTALLED="$(isPresent shadow)"
 SHADOW_UTILS_IS_INSTALLED="$(isPresent shadow-utils)"
+CRUN_IS_INSTALLED="$(isPresent crun)"
 DOCKER_IS_INSTALLED="$(isPresent docker)"
 APT_IS_PRESENT="$(isPresent apt-get)"
 YUM_IS_PRESENT="$(isPresent yum)"
@@ -588,6 +589,7 @@ function promptForDeps {
 		prnt "You are attempting to install AMP within an unprivileged container or a distro that doesn't support the latest Podman features."
 		prnt "It is strongly recommended that you run AMP within a proper VM on the latest LTS distro when able."
 		prnt "Your system requires Docker for running containers. Podman is not supported in this environment due to security restraints in the OS."
+		prnt "If Podman is currently being used by AMP to run containers, those containers will be stopped first before Docker is installed."
 		prnt "While running Docker does provide additional security versus natively, running Docker as root still poses some security risks."
 		case "$ID" in
 			ubuntu|debian|rhel|centos|fedora) ;;
@@ -599,6 +601,7 @@ function promptForDeps {
 		echo
 	else
 		prnt "Your system supports Podman for running containers. This runs in userspace (non-root) and is much more secure than running natively."
+		prnt "If Docker is currently being used by AMP to run containers, those containers will be stopped first before Podman is installed."
 		read -rp "[y/N] " installPodman
 		installPodman=${installPodman:-n}
 		echo
@@ -856,27 +859,46 @@ EOF
 }
 
 function installPodman {
+	echo ""
+	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
 	installNeeded=y
-	if [[ "$PODMAN_IS_INSTALLED" ]]; then
-		if [[ "$ID" =~ ^(ubuntu|debian)$ ]] && [[ "$UIDMAP_IS_INSTALLED" ]]; then
+
+	if [[ "$PODMAN_IS_INSTALLED" ]] && [[ "$CRUN_IS_INSTALLED" ]]; then
+		if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]] && [[ "$UIDMAP_IS_INSTALLED" ]]; then
 			installNeeded=n
-		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]] && [[ "$SHADOW_UTILS_IS_INSTALLED" ]]; then
+		elif [[ "$BASE_ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]] && [[ "$SHADOW_UTILS_IS_INSTALLED" ]]; then
 			installNeeded=n
-		elif [[ "$ID" =~ ^(opensuse|sles)$ ]] && [[ "$SHADOW_IS_INSTALLED" ]]; then
+		elif [[ "$BASE_ID" =~ ^(opensuse|sles)$ ]] && [[ "$SHADOW_IS_INSTALLED" ]]; then
 			installNeeded=n
 		fi
 	fi
-	if [[ "$installNeeded" == "n" ]]; then
+
+	if [[ "$installNeeded" == "n" ]] && [[ "$PODMAN_CHECK" == 1 ]]; then
 		echo "Podman already installed. Skipping..."
 		{
-			loginctl enable-linger amp
+			loginctl enable-linger $AMP_SYS_USER
+			su - $AMP_SYS_USER -c 'podman system reset -f'
+
+			TARGET="/home/$AMP_SYS_USER/.config/containers/registries.conf"
+			mkdir -p "$(dirname "$TARGET")"
+
+			cat > "$TARGET" << EOF
+unqualified-search-registries = ["docker.io"]
+short-name-mode = "permissive"
+EOF
+			chown $AMP_SYS_USER:$AMP_SYS_USER "$TARGET"
 		} &>> "$LOG_FILE"
 		return
 	fi
-	
+
 	if [[ "$PODMAN_CHECK" != 1 ]]; then
-		prnt "You are attempting to install AMP within an unprivileged container. It is strongly recommended that you run AMP within a proper VM when able."
-		prnt "AMP is unable to install rootless Podman in this environment due to security restraints in the OS. You can install Docker using the \"installDocker\" flag."
+		if [[ "$installNeeded" == "n" ]]; then
+			prnt "Podman is already installed. However, you are attempting to install (or have already installed) AMP within an unprivileged container or a distro that doesn't support the latest Podman features. It is strongly recommended that you run AMP within a proper VM when able."
+			prnt "AMP is unable to run rootless Podman in this environment due to security restraints in the OS. You can instead install Docker using the \"installDocker\" flag. You will also need to manually remove Podman."
+		else
+			prnt "You are attempting to install (or have already installed) AMP within an unprivileged container or a distro that doesn't support the latest Podman features. It is strongly recommended that you run AMP within a proper VM when able."
+			prnt "AMP is unable to run rootless Podman in this environment due to security restraints in the OS. You can instead install Docker using the \"installDocker\" flag."
+		fi
 		prnt "While running Docker does provide additional security versus native, running Docker as root still poses security risks."
 		echo
 		echo
@@ -885,23 +907,31 @@ function installPodman {
 
 	echo "Installing Podman..."
 	{
-		if [[ "$ID" =~ ^(ubuntu|debian)$ ]]; then
-			$PM_COMMAND "${PM_INSTALL[@]}" podman uidmap
-		elif [[ "$ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]]; then
-			$PM_COMMAND "${PM_INSTALL[@]}" podman shadow-utils
-		elif [[ "$ID" =~ ^(opensuse|sles)$ ]]; then
-			$PM_COMMAND "${PM_INSTALL[@]}" podman shadow
-		fi
-	
-		loginctl enable-linger amp
+		loginctl enable-linger $AMP_SYS_USER
 
-		TARGET="/home/amp/.config/containers/registries.conf"
+		if [[ "$DOCKER_IS_INSTALLED" ]]; then
+			docker ps -q --filter "name=^AMP_" | xargs -r docker stop
+		fi
+
+		if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]]; then
+			$PM_COMMAND "${PM_INSTALL[@]}" podman crun uidmap
+		elif [[ "$BASE_ID" =~ ^(amazonlinux|centos|fedora|oraclelinux|rhel|rocky|almalinux|fedora-asahi-remix)$ ]]; then
+			$PM_COMMAND "${PM_INSTALL[@]}" podman crun shadow-utils
+		elif [[ "$BASE_ID" =~ ^(opensuse|sles)$ ]]; then
+			$PM_COMMAND "${PM_INSTALL[@]}" podman crun shadow
+		else
+			prnt "Your distribution is not supported by getamp for automatic Podman installation. Please investigate installing Podman and its dependencies manually or run getamp installDocker to run instances using Docker."
+			return
+		fi
+
+		TARGET="/home/$AMP_SYS_USER/.config/containers/registries.conf"
 		mkdir -p "$(dirname "$TARGET")"
 
 		cat > "$TARGET" << EOF
 unqualified-search-registries = ["docker.io"]
 short-name-mode = "permissive"
 EOF
+		chown $AMP_SYS_USER:$AMP_SYS_USER "$TARGET"
 	} &>> "$LOG_FILE"
 }
 
@@ -998,6 +1028,9 @@ function installDocker {
 		fi
 	else
 		{
+			if [[ "$PODMAN_IS_INSTALLED" ]]; then
+				su - $AMP_SYS_USER -c 'podman ps -q --filter "name=^AMP_" | xargs -r podman stop'
+			fi
 			if [[ "$reInstallDocker" =~ ^[Yy]$ ]] && [[ -n "$REMOVE_DOCKER_PACKAGES" ]]; then
 				docker ps -q | xargs -r docker stop
 				systemctl stop docker
@@ -1162,7 +1195,17 @@ EOF
 		rm ./CubeCoders.repo > /dev/null
     elif [ "$ZYPPER_IS_PRESENT" ]; then
         echo "Adding CubeCoders repository for Zypper..."
-		wget -P /etc/zypp/repos.d "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo" &>> "$LOG_FILE"
+		#wget -P /etc/zypp/repos.d "https://cdn-repo.c7rs.com/${reposuffix}CubeCoders.repo" &>> "$LOG_FILE"
+		# Workaround for broken repo file on aarch64
+		{
+			cat <<EOF
+[CubeCoders]
+name=CubeCoders Limited
+baseurl=https://cdn-repo.c7rs.com/${reposuffix}
+enabled=1
+gpgcheck=0
+EOF
+		} > /etc/zypp/repos.d/CubeCoders.repo 2>>"$LOG_FILE"
         zypper refresh &>> "$LOG_FILE"
 	fi
 }
