@@ -1495,7 +1495,7 @@ function uninstall_notyettested {
 	#Prompt for confirmation
 	current_day=$(date -u +%A)
 	phrase="I want to destroy all AMP data and the servers it manages. Today is ${current_day}."
-	falsePhrase=${phrase// / }
+	falsePhrase=${phrase// / }
 	echo "Enter the following phrase to continue (You must type it, do not copy paste):"
 	echo "${BoldText}${falsePhrase}${NormalText}"
 	echo
