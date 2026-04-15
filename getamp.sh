@@ -600,6 +600,7 @@ function promptForDeps {
 			ubuntu|debian|rhel|centos|fedora) ;;
 			*) prnt "Note: Your distribution does not have a specific Docker repository. If this option is selected an attempt will be made to install Docker from the appropriate upstream repository." ;;
 		esac
+		prnt "Do you want to install Docker?"
 		read -rp "[y/N] " installDocker
 		installDocker=${installDocker:-n}
 		echo
@@ -607,6 +608,7 @@ function promptForDeps {
 	else
 		prnt "Your system supports Podman for running containers. This runs in userspace (non-root) and is much more secure than running natively."
 		prnt "If Docker is currently being used by AMP to run containers, those containers will be stopped first before Podman is installed."
+		prnt "Do you want to install Podman?"
 		read -rp "[y/N] " installPodman
 		installPodman=${installPodman:-n}
 		echo
