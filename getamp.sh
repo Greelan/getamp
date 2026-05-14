@@ -125,6 +125,7 @@ PODMAN_IS_INSTALLED="$(isPresent podman)"
 DOCKER_IS_INSTALLED="$(isPresent docker)"
 APT_IS_PRESENT="$(isPresent apt-get)"
 YUM_IS_PRESENT="$(isPresent yum)"
+TDNF_IS_PRESENT="$(isPresent tdnf)"
 PACMAN_IS_PRESENT="$(isPresent pacman)"
 ZYPPER_IS_PRESENT="$(isPresent zypper)"
 JQ_IS_PRESENT="$(isPresent jq)"
@@ -235,6 +236,13 @@ if [ "$APT_IS_PRESENT" ]; then
 		PREREQ_PACKAGES="$PREREQ_PACKAGES iptables-persistent"
 	fi
 	PODMAN_PACKAGES="crun podman uidmap"
+elif [ "$TDNF_IS_PRESENT" ]; then
+	PM_COMMAND=tdnf
+	PM_INSTALL=(-y install)
+	PM_UNINSTALL=(-y remove)
+	PM_LOCK_FILE="/var/run/tdnf.pid"
+	INSTALL_IN_PROGRESS=$(isFileOpen $PM_LOCK_FILE)
+	CERTBOT_PACKAGE=certbot-nginx
 elif [ "$YUM_IS_PRESENT" ]; then
 	PM_COMMAND=yum
 	PM_INSTALL=(-y install)
@@ -351,6 +359,7 @@ if awk '$1==0 && $2==0' /proc/self/uid_map | grep -q .; then
 	PODMAN_CHECK=1
 
     if { [ "$BASE_ID" = "debian" ] && ! version_ge "$VERSION_ID" "13"; } ||
+       { [ "$ID" = "photon" ]; } || 
        { [ "$BASE_ID" = "ubuntu" ] && ! version_ge "$VERSION_ID" "24.04"; }; then
         PODMAN_CHECK=0
     fi
@@ -814,6 +823,12 @@ function updateSystem {
 	if [ "$APT_IS_PRESENT" ]; then
 		apt-get update &>> "$LOG_FILE"
 		apt-get upgrade -y &>> "$LOG_FILE"
+elif [ "$TDNF_IS_PRESENT" ]; then
+		# the following stop gpg validation errors for package installation
+		tdnf update -y tdnf &>> "$LOG_FILE"
+		tdnf update -y photon-repos --refresh &>> "$LOG_FILE"
+		# apply system updates
+		tdnf update -y &>> "$LOG_FILE"
 	elif [ "$YUM_IS_PRESENT" ]; then
 		yum update -y &>> "$LOG_FILE"
 	elif [ "$PACMAN_IS_PRESENT" ]; then
@@ -975,6 +990,13 @@ EOF
 }
 
 function installDocker {
+if [[ "$ID" == "photon" ]]; then
+        # Using native docker
+	  	systemctl enable docker
+        usermod -aG docker amp
+	  	systemctl start docker
+        return
+    fi
 	echo ""
 	
 	if [[ "$DOCKER_IS_INSTALLED" ]]; then
@@ -1106,7 +1128,18 @@ function installNginx {
 		apt-get update
 	fi
 
+    if [[ "$ID" == "photon" ]]; then
+        $PM_COMMAND "${PM_INSTALL[@]}" python3-pip &>> "$LOG_FILE"
+  	  	# upgrade to avoid bugs in the photon pip3 python packaging
+	  	curl -sS https://bootstrap.pypa.io/get-pip.py -o ./get-pip.py
+	  	python3 ./get-pip.py "pip>=25.0"
+        rm ./get-pip.py
+        # install certbot and nginx support
+        pip3 --root-user-action install certbot &>> "$LOG_FILE"
+        pip3 --root-user-action install certbot-nginx &>> "$LOG_FILE"
+    else 
 	$PM_COMMAND "${PM_INSTALL[@]}" certbot $CERTBOT_PACKAGE &>> "$LOG_FILE"
+    fi	
 	
 	CERTBOT_IS_PRESENT=$(isPresent certbot)
 	if ! [ "$CERTBOT_IS_PRESENT" ]; then
@@ -1126,7 +1159,7 @@ function installNginx {
 }
 
 function installPrerequisites {
-	if [ "$YUM_IS_PRESENT" ]; then
+	if ! [ "$TDNF_IS_PRESENT" ] && [ "$YUM_IS_PRESENT" ]; then
 		$PM_COMMAND install -y epel-release &>> "$LOG_FILE"
 		yum repolist &>> "$LOG_FILE"
 	fi
@@ -1213,6 +1246,17 @@ function addRepo {
 			wget -O /usr/share/keyrings/cdn-repo.c7rs.com.gpg https://cdn-repo.c7rs.com/archive.key
 			$PM_COMMAND update 
 		} &>> "$LOG_FILE"
+	elif [[ "$TDNF_IS_PRESENT" ]]; then
+		{
+			cat <<EOF
+[CubeCoders]
+name=CubeCoders Limited
+baseurl=https://cdn-repo.c7rs.com/${reposuffix}
+enabled=1
+gpgcheck=0
+EOF
+		} > /etc/yum.repos.d/CubeCoders.repo 2>>"$LOG_FILE"
+		$PM_COMMAND update --refresh
 	elif [[ "$YUM_IS_PRESENT" ]]; then
 		echo "Adding CubeCoders RPM repository..."
 		#{
@@ -1256,7 +1300,7 @@ function updateRepo {
 function installAMP {
 	echo "Installing instance manager..."
 	
-	if [ "$APT_IS_PRESENT" ] || [ "$YUM_IS_PRESENT" ] ; then
+	if [ "$APT_IS_PRESENT" ] || [ "$YUM_IS_PRESENT" ] || [ "$TDNF_IS_PRESENT" ] ; then
 		echo " - Installing via package manager..."
 		if ! $PM_COMMAND "${PM_INSTALL[@]}" ampinstmgr &>> "$LOG_FILE"; then
 			echo "Failed to install instance manager. Aborting..."
@@ -1383,7 +1427,7 @@ function postSetupHTTPS {
 function update {
 	echo "Applying AMP updates..."
 
-	if [ "$APT_IS_PRESENT" ] || [ "$YUM_IS_PRESENT" ] ; then
+	if [ "$APT_IS_PRESENT" ] || [ "$YUM_IS_PRESENT" ] || [ "$TDNF_IS_PRESENT" ]; then
 		$PM_COMMAND update
 		$PM_COMMAND "${PM_INSTALL[@]}" ampinstmgr
 	elif [ "$PACMAN_IS_PRESENT" ]; then
