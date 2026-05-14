@@ -1118,16 +1118,16 @@ function installNginx {
 	fi
 }
 
-function installDependencies {
-	echo Installing prerequisites...
-
+function installPrerequisites {
 	if [ "$YUM_IS_PRESENT" ]; then
 		$PM_COMMAND install -y epel-release &>> "$LOG_FILE"
 		yum repolist &>> "$LOG_FILE"
 	fi
+$PM_COMMAND "${PM_INSTALL[@]}" $PREREQ_PACKAGES &>> "$LOG_FILE"
+}
 
+function installDependencies {
 # shellcheck disable=SC2086
-	$PM_COMMAND "${PM_INSTALL[@]}" $PREREQ_PACKAGES &>> "$LOG_FILE"
 
 	JQ_IS_PRESENT="$(isPresent jq)"
 
@@ -1605,6 +1605,8 @@ if [ -z "$USE_ANSWERS" ]; then
 	read -r
 	echo
 fi
+
+installPrerequisites
 
 echo Installing AMP...
 
