@@ -276,8 +276,11 @@ else
 fi
 
 if [ "$ID" == "photon" ]; then
-	PREREQ_PACKAGES="wget tmux socat unzip git bindutils tar jq sqlite-devel"
+	IPTABLES_RULES=/etc/systemd/scripts/ip4save
 	FORCE_CONTAINERS=1
+NEED_GROUP=true
+        HAS_NATIVE_32BIT=0
+	PREREQ_PACKAGES="wget tmux socat unzip git bindutils tar jq sqlite-devel icu"
 fi
 
 #Fix for systems that don't have 32-bit binary support (64-bit only)
