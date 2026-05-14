@@ -112,6 +112,7 @@ AMP_USER_EXISTS=$(grep -c :/home/$AMP_SYS_USER: /etc/passwd)
 AMPINSTMGR_IS_INSTALLED="$(isPresent ampinstmgr)"
 #NFT_IS_PRESENT="$(isPresent nft)"
 IPTABLES_IS_PRESENT="$(isPresent iptables)"
+IPTABLES_RULES=/etc/iptables/rules.v4
 UFW_IS_PRESENT="$(isPresent ufw)"
 FIREWALLCMD_IS_PRESENT="$(isPresent firewall-cmd)"
 SS_IS_PRESENT="$(isPresent ss)"
@@ -124,6 +125,7 @@ PODMAN_IS_INSTALLED="$(isPresent podman)"
 DOCKER_IS_INSTALLED="$(isPresent docker)"
 APT_IS_PRESENT="$(isPresent apt-get)"
 YUM_IS_PRESENT="$(isPresent yum)"
+TDNF_IS_PRESENT="$(isPresent tdnf)"
 PACMAN_IS_PRESENT="$(isPresent pacman)"
 ZYPPER_IS_PRESENT="$(isPresent zypper)"
 JQ_IS_PRESENT="$(isPresent jq)"
@@ -133,6 +135,7 @@ STATUS_FILE=/opt/cubecoders/amp/shared/WebRoot/installState.json
 JAVA_PACKAGES="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk temurin-25-jdk"
 HAS_NATIVE_32BIT=1
 PODMAN_CHECK=0
+NEED_GROUP=false
 
 echo " - Checking environment..."
 if [[ $EUID -ne 0 ]]; then
@@ -233,6 +236,13 @@ if [ "$APT_IS_PRESENT" ]; then
 		PREREQ_PACKAGES="$PREREQ_PACKAGES iptables-persistent"
 	fi
 	PODMAN_PACKAGES="crun podman uidmap"
+elif [ "$TDNF_IS_PRESENT" ]; then
+	PM_COMMAND=tdnf
+	PM_INSTALL=(-y install)
+	PM_UNINSTALL=(-y remove)
+	PM_LOCK_FILE="/var/run/tdnf.pid"
+	INSTALL_IN_PROGRESS=$(isFileOpen $PM_LOCK_FILE)
+	CERTBOT_PACKAGE=certbot-nginx
 elif [ "$YUM_IS_PRESENT" ]; then
 	PM_COMMAND=yum
 	PM_INSTALL=(-y install)
@@ -274,8 +284,11 @@ else
 fi
 
 if [ "$ID" == "photon" ]; then
-	PREREQ_PACKAGES="wget tmux socat unzip git bindutils tar jq sqlite-devel"
+	IPTABLES_RULES=/etc/systemd/scripts/ip4save
 	FORCE_CONTAINERS=1
+NEED_GROUP=true
+        HAS_NATIVE_32BIT=0
+	PREREQ_PACKAGES="wget tmux socat unzip git bindutils tar jq sqlite-devel icu"
 fi
 
 #Fix for systems that don't have 32-bit binary support (64-bit only)
@@ -346,6 +359,7 @@ if awk '$1==0 && $2==0' /proc/self/uid_map | grep -q .; then
 	PODMAN_CHECK=1
 
     if { [ "$BASE_ID" = "debian" ] && ! version_ge "$VERSION_ID" "13"; } ||
+       { [ "$ID" = "photon" ]; } || 
        { [ "$BASE_ID" = "ubuntu" ] && ! version_ge "$VERSION_ID" "24.04"; }; then
         PODMAN_CHECK=0
     fi
@@ -799,6 +813,9 @@ right_meter_modes=1 2 2 2
 EOF
 	chown $AMP_SYS_USER:$AMP_SYS_USER "/home/$AMP_SYS_USER/.bashrc" 2> /dev/null
 	chown -R $AMP_SYS_USER:$( [[ "$ID" == "photon" ]] && echo "users" || echo "$AMP_SYS_USER" ) "/home/$AMP_SYS_USER/.config" 2> /dev/null
+if $NEED_GROUP; then
+        	groupadd --users $AMP_SYS_USER amp
+        fi
 }
 
 function updateSystem {
@@ -806,6 +823,12 @@ function updateSystem {
 	if [ "$APT_IS_PRESENT" ]; then
 		apt-get update &>> "$LOG_FILE"
 		apt-get upgrade -y &>> "$LOG_FILE"
+elif [ "$TDNF_IS_PRESENT" ]; then
+		# the following stop gpg validation errors for package installation
+		tdnf update -y tdnf &>> "$LOG_FILE"
+		tdnf update -y photon-repos --refresh &>> "$LOG_FILE"
+		# apply system updates
+		tdnf update -y &>> "$LOG_FILE"
 	elif [ "$YUM_IS_PRESENT" ]; then
 		yum update -y &>> "$LOG_FILE"
 	elif [ "$PACMAN_IS_PRESENT" ]; then
@@ -967,6 +990,13 @@ EOF
 }
 
 function installDocker {
+if [[ "$ID" == "photon" ]]; then
+        # Using native docker
+	  	systemctl enable docker
+        usermod -aG docker amp
+	  	systemctl start docker
+        return
+    fi
 	echo ""
 	
 	if [[ "$DOCKER_IS_INSTALLED" ]]; then
@@ -1098,7 +1128,18 @@ function installNginx {
 		apt-get update
 	fi
 
+    if [[ "$ID" == "photon" ]]; then
+        $PM_COMMAND "${PM_INSTALL[@]}" python3-pip &>> "$LOG_FILE"
+  	  	# upgrade to avoid bugs in the photon pip3 python packaging
+	  	curl -sS https://bootstrap.pypa.io/get-pip.py -o ./get-pip.py
+	  	python3 ./get-pip.py "pip>=25.0"
+        rm ./get-pip.py
+        # install certbot and nginx support
+        pip3 --root-user-action install certbot &>> "$LOG_FILE"
+        pip3 --root-user-action install certbot-nginx &>> "$LOG_FILE"
+    else 
 	$PM_COMMAND "${PM_INSTALL[@]}" certbot $CERTBOT_PACKAGE &>> "$LOG_FILE"
+    fi	
 	
 	CERTBOT_IS_PRESENT=$(isPresent certbot)
 	if ! [ "$CERTBOT_IS_PRESENT" ]; then
@@ -1117,16 +1158,16 @@ function installNginx {
 	fi
 }
 
-function installDependencies {
-	echo Installing prerequisites...
-
-	if [ "$YUM_IS_PRESENT" ]; then
+function installPrerequisites {
+	if ! [ "$TDNF_IS_PRESENT" ] && [ "$YUM_IS_PRESENT" ]; then
 		$PM_COMMAND install -y epel-release &>> "$LOG_FILE"
 		yum repolist &>> "$LOG_FILE"
 	fi
+$PM_COMMAND "${PM_INSTALL[@]}" $PREREQ_PACKAGES &>> "$LOG_FILE"
+}
 
+function installDependencies {
 # shellcheck disable=SC2086
-	$PM_COMMAND "${PM_INSTALL[@]}" $PREREQ_PACKAGES &>> "$LOG_FILE"
 
 	JQ_IS_PRESENT="$(isPresent jq)"
 
@@ -1205,6 +1246,17 @@ function addRepo {
 			wget -O /usr/share/keyrings/cdn-repo.c7rs.com.gpg https://cdn-repo.c7rs.com/archive.key
 			$PM_COMMAND update 
 		} &>> "$LOG_FILE"
+	elif [[ "$TDNF_IS_PRESENT" ]]; then
+		{
+			cat <<EOF
+[CubeCoders]
+name=CubeCoders Limited
+baseurl=https://cdn-repo.c7rs.com/${reposuffix}
+enabled=1
+gpgcheck=0
+EOF
+		} > /etc/yum.repos.d/CubeCoders.repo 2>>"$LOG_FILE"
+		$PM_COMMAND update --refresh
 	elif [[ "$YUM_IS_PRESENT" ]]; then
 		echo "Adding CubeCoders RPM repository..."
 		#{
@@ -1248,7 +1300,7 @@ function updateRepo {
 function installAMP {
 	echo "Installing instance manager..."
 	
-	if [ "$APT_IS_PRESENT" ] || [ "$YUM_IS_PRESENT" ] ; then
+	if [ "$APT_IS_PRESENT" ] || [ "$YUM_IS_PRESENT" ] || [ "$TDNF_IS_PRESENT" ] ; then
 		echo " - Installing via package manager..."
 		if ! $PM_COMMAND "${PM_INSTALL[@]}" ampinstmgr &>> "$LOG_FILE"; then
 			echo "Failed to install instance manager. Aborting..."
@@ -1272,7 +1324,7 @@ function addFirewallRule {
 		none) echo "No firewall installed, please add port $1 manually to your inbound firewall" ;;
 		ufw) ufw allow from any to any port "$1" proto tcp comment "$2" ;;
 		firewalld) firewall-cmd "--add-port=$1/tcp" --permanent && firewall-cmd --reload ;;
-		iptables) iptables -A INPUT -p tcp -m tcp --dport "$1" -j ACCEPT -m comment --comment "$2" && mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4 ;;
+		iptables) iptables -A INPUT -p tcp -m tcp --dport "$1" -j ACCEPT -m comment --comment "$2" && mkdir -p /etc/iptables && iptables-save > $IPTABLES_RULES ;;
 		nft) nft add rule filter input tcp dport "$1" accept comment "\"$2\"" ;;
 		*) echo "Unsupported Firewall!" ;;
 	esac
@@ -1375,7 +1427,7 @@ function postSetupHTTPS {
 function update {
 	echo "Applying AMP updates..."
 
-	if [ "$APT_IS_PRESENT" ] || [ "$YUM_IS_PRESENT" ] ; then
+	if [ "$APT_IS_PRESENT" ] || [ "$YUM_IS_PRESENT" ] || [ "$TDNF_IS_PRESENT" ]; then
 		$PM_COMMAND update
 		$PM_COMMAND "${PM_INSTALL[@]}" ampinstmgr
 	elif [ "$PACMAN_IS_PRESENT" ]; then
@@ -1604,6 +1656,8 @@ if [ -z "$USE_ANSWERS" ]; then
 	read -r
 	echo
 fi
+
+installPrerequisites
 
 echo Installing AMP...
 
