@@ -134,6 +134,7 @@ STATUS_FILE=/opt/cubecoders/amp/shared/WebRoot/installState.json
 JAVA_PACKAGES="temurin-8-jdk temurin-11-jdk temurin-17-jdk temurin-21-jdk temurin-25-jdk"
 HAS_NATIVE_32BIT=1
 PODMAN_CHECK=0
+NEED_GROUP=false
 
 echo " - Checking environment..."
 if [[ $EUID -ne 0 ]]; then
@@ -800,6 +801,9 @@ right_meter_modes=1 2 2 2
 EOF
 	chown $AMP_SYS_USER:$AMP_SYS_USER "/home/$AMP_SYS_USER/.bashrc" 2> /dev/null
 	chown -R $AMP_SYS_USER:$( [[ "$ID" == "photon" ]] && echo "users" || echo "$AMP_SYS_USER" ) "/home/$AMP_SYS_USER/.config" 2> /dev/null
+if $NEED_GROUP; then
+        	groupadd --users $AMP_SYS_USER amp
+        fi
 }
 
 function updateSystem {
