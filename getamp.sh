@@ -91,8 +91,6 @@ function mapUpstream {
 			echo "centos||${VERSION_ID:-}"; return 0 ;;
 		arch|manjaro|endeavouros|garuda|cachyos)
 			echo "arch||${VERSION_ID:-rolling}"; return 0 ;;
-		photon)
-			echo "photon||${VERSION_ID:-}"; return 0 ;;
 		*)
 			return 1 ;;
 	esac
