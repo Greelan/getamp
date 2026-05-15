@@ -208,6 +208,7 @@ fi
 
 # shellcheck disable=1091
 source /etc/os-release
+IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
 
 if [ "$APT_IS_PRESENT" ]; then
 	export DEBIAN_FRONTEND=noninteractive
@@ -218,13 +219,16 @@ if [ "$APT_IS_PRESENT" ]; then
 	LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses5:i386 libbz2-1.0:i386 libtinfo5:i386 libcurl3-gnutls:i386 libsdl2-2.0-0:i386"
 	PREREQ_PACKAGES="dirmngr software-properties-common apt-transport-https gpg-agent dnsutils jq git unzip wget gpg qrencode ca-certificates"
 	# If we're on Ubuntu 24.04 or newer: 
-	if [ "$ID" = "ubuntu" ] && version_ge "$VERSION_ID" "24.04"; then
-		echo " - Updating packages list for Ubuntu >= 24.04..."
-		LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3t64-gnutls:i386 libsdl2-2.0-0:i386"
+	if [ "$BASE_ID" = "ubuntu" ]; then
+		if version_ge "$BASE_VERSION_ID" "24.04"; then
+			LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3t64-gnutls:i386 libsdl2-2.0-0:i386"
+		fi
+		if version_ge "$BASE_VERSION_ID" "26.04"; then
+			PREREQ_PACKAGES+=" libicu78"
+		fi
 	fi
 	# Debian 13 or newer
-	if [ "$ID" = "debian" ] && version_ge "$VERSION_ID" "13"; then
-		echo " - Updating packages list for Debian >= 13..."
+	if [ "$BASE_ID" = "debian" ] && version_ge "$BASE_VERSION_ID" "13"; then
 		PREREQ_PACKAGES="dirmngr apt-transport-https gpg-agent dnsutils jq git unzip wget gpg qrencode libicu76 ca-certificates"
 		LIB32_PACKAGES="libgcc-s1:i386 libstdc++6:i386 zlib1g:i386 libncurses6:i386 libbz2-1.0:i386 libtinfo6:i386 libcurl3t64-gnutls:i386 libsdl2-2.0-0:i386"
 	fi
@@ -355,7 +359,6 @@ fi
 
 # Use Podman if in a privileged container/VM and all distros and versions except Debian 12 and below and Ubuntu before 24.04 due to missing features in older Podman versions that are required for AMP to run properly. In these cases, Docker will be used instead.
 if awk '$1==0 && $2==0' /proc/self/uid_map | grep -q .; then
-	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
 	PODMAN_CHECK=1
 
     if { [ "$BASE_ID" = "debian" ] && ! version_ge "$BASE_VERSION_ID" "13"; } ||
@@ -837,7 +840,6 @@ function updateSystem {
 }
 
 function installJava {
-	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
 	JAVA_INSTALL_AVAILABLE=false
 
 	if [[ "$BASE_ID" =~ ^(ubuntu|debian)$ ]]; then
@@ -913,7 +915,6 @@ EOF
 
 function installPodman {
 	echo ""
-	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
 
 	installNeeded=n
 	for pkg in "${PODMAN_PACKAGES[@]}"; do
@@ -1018,7 +1019,6 @@ function installDocker {
 	fi
 
 	echo "Installing Docker..."
-	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
 	DOCKER_REPO_AVAILABLE=false
 
     case "$BASE_ID" in
@@ -1228,8 +1228,6 @@ function checkConfig {
 } 
 
 function addRepo {
-	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
-
 	if [[ "$APT_IS_PRESENT" ]]; then
 		echo "Adding CubeCoders DEB repository..."
 		[[ -f /etc/apt/sources.list.d/repo.cubecoders.com.list ]] && rm -f /etc/apt/sources.list.d/repo.cubecoders.com.list >/dev/null 2>&1
@@ -1502,27 +1500,40 @@ function paste {
 }
 
 function debian13upgrade {
-	if [ "$ID" != "debian" ] || [ "$VERSION_ID" != "13" ]; then
-		echo "This function is only for use after upgrading the system from Debian 12 to 13."
+	if [ "$BASE_ID" != "debian" ] || [ "$BASE_VERSION_ID" != "13" ]; then
+		echo "This function is only for use after upgrading the system from Debian 12 to 13 (or equivalent derivatives)."
 		exit 1
 	fi
-	echo "Updating repositories for Debian 13..."
+	echo "Attempting to update repositories and Java installation for Debian 13..."
 	updateRepo
-
 	if [ -f /usr/share/keyrings/adoptium.gpg ]; then
-		echo "Re-adding Adoptium repo"
-		[[ -f /etc/apt/sources.list.d/adoptium.list ]] && rm -f /etc/apt/sources.list.d/adoptium.list >/dev/null 2>&1
-		printf "Types: deb\nURIs: https://packages.adoptium.net/artifactory/deb\nSuites: %s\nComponents: main\nSigned-By: /usr/share/keyrings/adoptium.gpg\n" "$VERSION_CODENAME" | tee /etc/apt/sources.list.d/adoptium.sources >/dev/null
+		installJava
 	fi
 
-	echo "Updating packages for Debian 13..."
+	echo "Updating other packages for Debian 13..."
 	updateSystem
-	apt install -y libicu76
+	$PM_COMMAND "${PM_INSTALL[@]}" libicu76
 
-	#check if i386 arch has been added previously via dpkg --add-architecture
+	# check if i386 arch has been added previously via dpkg --add-architecture
 	if dpkg --print-foreign-architectures | grep -q i386; then
-		apt install -y libncurses6:i386 libtinfo6:i386
+		$PM_COMMAND "${PM_INSTALL[@]}" libncurses6:i386 libtinfo6:i386
 	fi
+}
+
+function ubuntu2604upgrade {
+	if [ "$BASE_ID" != "ubuntu" ] || [ "$BASE_VERSION_ID" != "26.04" ]; then
+		echo "This function is only for use after upgrading the system from Ubuntu 24.04 to 26.04 (or equivalent derivatives)."
+		exit 1
+	fi
+	echo "Attempting to update repositories and Java installation for Ubuntu 26.04..."
+	updateRepo
+	if [ -f /usr/share/keyrings/adoptium.gpg ]; then
+		installJava
+	fi
+
+	echo "Updating other packages for Ubuntu 26.04..."
+	updateSystem
+	$PM_COMMAND "${PM_INSTALL[@]}" libicu78
 }
 
 function rebootNow {
