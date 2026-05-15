@@ -91,6 +91,8 @@ function mapUpstream {
 			echo "centos||${VERSION_ID:-}"; return 0 ;;
 		arch|manjaro|endeavouros|garuda|cachyos)
 			echo "arch||${VERSION_ID:-rolling}"; return 0 ;;
+		photon)
+			echo "photon||${VERSION_ID:-}"; return 0 ;;
 		*)
 			return 1 ;;
 	esac
@@ -286,12 +288,12 @@ fi
 if [ "$ID" == "photon" ]; then
 	IPTABLES_RULES=/etc/systemd/scripts/ip4save
 	FORCE_CONTAINERS=1
-NEED_GROUP=true
-        HAS_NATIVE_32BIT=0
+	NEED_GROUP=true
+    HAS_NATIVE_32BIT=0
 	PREREQ_PACKAGES="wget tmux socat unzip git bindutils tar jq sqlite-devel icu"
 fi
 
-#Fix for systems that don't have 32-bit binary support (64-bit only)
+# Fix for systems that don't have 32-bit binary support (64-bit only)
 case "$ID" in
     rhel|centos|rocky|almalinux)
         if [[ ${VERSION_ID%%.*} -ge 10 ]]; then
@@ -358,9 +360,9 @@ if awk '$1==0 && $2==0' /proc/self/uid_map | grep -q .; then
 	IFS='|' read -r BASE_ID BASE_SUITE BASE_VERSION_ID < <(mapUpstream)
 	PODMAN_CHECK=1
 
-    if { [ "$BASE_ID" = "debian" ] && ! version_ge "$VERSION_ID" "13"; } ||
-       { [ "$ID" = "photon" ]; } || 
-       { [ "$BASE_ID" = "ubuntu" ] && ! version_ge "$VERSION_ID" "24.04"; }; then
+    if { [ "$BASE_ID" = "debian" ] && ! version_ge "$BASE_VERSION_ID" "13"; } ||
+       [ "$ID" = "photon" ] || 
+       { [ "$BASE_ID" = "ubuntu" ] && ! version_ge "$BASE_VERSION_ID" "24.04"; }; then
         PODMAN_CHECK=0
     fi
 fi
@@ -454,6 +456,7 @@ function showSystemInfo {
 }
 
 function configureDarkMagicNew {
+	echo ""
 	if [[ "$ARCH" != "aarch64" ]]; then
 		echo "CPx2 is only applicable to aarch64 systems."
 		exit
@@ -813,27 +816,25 @@ right_meter_modes=1 2 2 2
 EOF
 	chown $AMP_SYS_USER:$AMP_SYS_USER "/home/$AMP_SYS_USER/.bashrc" 2> /dev/null
 	chown -R $AMP_SYS_USER:$( [[ "$ID" == "photon" ]] && echo "users" || echo "$AMP_SYS_USER" ) "/home/$AMP_SYS_USER/.config" 2> /dev/null
-if $NEED_GROUP; then
-        	groupadd --users $AMP_SYS_USER amp
-        fi
+	$NEED_GROUP && groupadd --users $AMP_SYS_USER $AMP_SYS_USER
 }
 
 function updateSystem {
 	echo "Updating System..."
 	if [ "$APT_IS_PRESENT" ]; then
-		apt-get update &>> "$LOG_FILE"
-		apt-get upgrade -y &>> "$LOG_FILE"
-elif [ "$TDNF_IS_PRESENT" ]; then
+		$PM_COMMAND update &>> "$LOG_FILE"
+		$PM_COMMAND upgrade -y &>> "$LOG_FILE"
+	elif [ "$TDNF_IS_PRESENT" ]; then
 		# the following stop gpg validation errors for package installation
-		tdnf update -y tdnf &>> "$LOG_FILE"
-		tdnf update -y photon-repos --refresh &>> "$LOG_FILE"
+		$PM_COMMAND update -y tdnf &>> "$LOG_FILE"
+		$PM_COMMAND update -y photon-repos --refresh &>> "$LOG_FILE"
 		# apply system updates
-		tdnf update -y &>> "$LOG_FILE"
+		$PM_COMMAND update -y &>> "$LOG_FILE"
 	elif [ "$YUM_IS_PRESENT" ]; then
-		yum update -y &>> "$LOG_FILE"
+		$PM_COMMAND update -y &>> "$LOG_FILE"
 	elif [ "$PACMAN_IS_PRESENT" ]; then
 		sed -i "/\[multilib\]/,/Include/"'s/^#//' /etc/pacman.conf
-		pacman -Syu --noconfirm &>> "$LOG_FILE"
+		$PM_COMMAND -Syu --noconfirm &>> "$LOG_FILE"
 	fi
 }
 
@@ -990,24 +991,25 @@ EOF
 }
 
 function installDocker {
-if [[ "$ID" == "photon" ]]; then
-        # Using native docker
-	  	systemctl enable docker
-        usermod -aG docker amp
-	  	systemctl start docker
-        return
-    fi
 	echo ""
-	
 	if [[ "$DOCKER_IS_INSTALLED" ]]; then
-		echo "Docker is already installed."
-		echo "If you didn't install Docker from the official Docker repositories, then it may not operate correctly with AMP."
-		echo "Do you want to remove the existing Docker installation and install Docker from the official Docker repositories, if available for your system?"
-		echo "This will also stop any existing running Docker containers."
-		read -rp "[y/N] " reInstallDocker
-		reInstallDocker=${reInstallDocker:-n}
-		if [[ ! "$reInstallDocker" =~ ^[Yy]$ ]]; then
-			echo "Skipping Docker re-installation, and configuring Docker for AMP..."
+		if [[ "$ID" != "photon" ]]; then	
+			echo "Docker is already installed."
+			echo "If you didn't install Docker from the official Docker repositories, then it may not operate correctly with AMP."
+			echo "Do you want to remove the existing Docker installation and install Docker from the official Docker repositories, if available for your system?"
+			echo "This will also stop any existing running Docker containers."
+			read -rp "[y/N] " reInstallDocker
+			reInstallDocker=${reInstallDocker:-n}
+			if [[ ! "$reInstallDocker" =~ ^[Yy]$ ]]; then
+				echo "Skipping Docker re-installation, and configuring Docker for AMP..."
+				{
+					usermod -a -G docker $AMP_SYS_USER
+					systemctl enable docker
+					systemctl start docker
+				} &>> "$LOG_FILE"
+				return
+			fi
+		else
 			{
 				usermod -a -G docker $AMP_SYS_USER
 				systemctl enable docker
@@ -1098,9 +1100,9 @@ if [[ "$ID" == "photon" ]]; then
 				for pkg in $REMOVE_DOCKER_PACKAGES; do $PM_COMMAND "${PM_UNINSTALL[@]}" $pkg; done
 			fi
 			$PM_COMMAND "${PM_INSTALL[@]}" $DOCKER_PACKAGES
+			usermod -a -G docker $AMP_SYS_USER
 			systemctl enable docker
 			systemctl start docker
-			usermod -a -G docker $AMP_SYS_USER
 		} &>> "$LOG_FILE"
 	fi
 }
@@ -1109,7 +1111,7 @@ function install32BitDeps {
 	echo "Installing 32-bit libraries for SteamCMD applications..."
 	if [ "$APT_IS_PRESENT" ]; then
 		dpkg --add-architecture i386 &>> "$LOG_FILE"
-		apt-get update &>> "$LOG_FILE"
+		$PM_COMMAND update &>> "$LOG_FILE"
 	fi
 
 # shellcheck disable=SC2086
@@ -1125,7 +1127,7 @@ function installNginx {
 			
 	if [ "$APT_IS_PRESENT" ] && [ "$ID" == "ubuntu" ] ; then
 		add-apt-repository --yes universe
-		apt-get update
+		$PM_COMMAND update
 	fi
 
     if [[ "$ID" == "photon" ]]; then
@@ -1138,7 +1140,7 @@ function installNginx {
         pip3 --root-user-action install certbot &>> "$LOG_FILE"
         pip3 --root-user-action install certbot-nginx &>> "$LOG_FILE"
     else 
-	$PM_COMMAND "${PM_INSTALL[@]}" certbot $CERTBOT_PACKAGE &>> "$LOG_FILE"
+		$PM_COMMAND "${PM_INSTALL[@]}" certbot $CERTBOT_PACKAGE &>> "$LOG_FILE"
     fi	
 	
 	CERTBOT_IS_PRESENT=$(isPresent certbot)
@@ -1163,7 +1165,7 @@ function installPrerequisites {
 		$PM_COMMAND install -y epel-release &>> "$LOG_FILE"
 		yum repolist &>> "$LOG_FILE"
 	fi
-$PM_COMMAND "${PM_INSTALL[@]}" $PREREQ_PACKAGES &>> "$LOG_FILE"
+	$PM_COMMAND "${PM_INSTALL[@]}" $PREREQ_PACKAGES &>> "$LOG_FILE"
 }
 
 function installDependencies {
@@ -1657,9 +1659,10 @@ if [ -z "$USE_ANSWERS" ]; then
 	echo
 fi
 
-installPrerequisites
+echo Installing AMP and other required packages...
 
-echo Installing AMP...
+updateSystem
+installPrerequisites
 
 if [ "$AMP_USER_EXISTS" -eq "0" ]; then
 	createUser
@@ -1674,7 +1677,6 @@ else
 	fi
 fi
 
-updateSystem
 installDependencies
 checkConfig
 
